@@ -5,10 +5,32 @@
 // API Configuration
 export const API_CONFIG = {
   BASE_URL:
-    (import.meta.env.VITE_API_BASE_URL as string) ||
-    'http://localhost:3001/api',
+    (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:8000',
   TIMEOUT: 10000,
   RETRY_ATTEMPTS: 3,
+} as const;
+
+// Auth Configuration
+export const AUTH_CONFIG = {
+  LOGIN_ENDPOINT: '/api/v1/auth/login/',
+  REFRESH_ENDPOINT: '/api/v1/auth/refresh/',
+  LOGOUT_ENDPOINT: '/api/v1/auth/logout/',
+  COMPANY_ENDPOINT: '/api/v1/company/',
+  BRAND_ENDPOINT: '/api/v1/brands/',
+  SALES_CHANNEL_ENDPOINT: '/api/v1/sales-channels/',
+  USER_ENDPOINT: '/api/v1/users/',
+  STORAGE_KEY: {
+    // HttpOnly cookies (managed by backend)
+    REFRESH_TOKEN: 'refresh_token', // Backend sets this as HttpOnly cookie
+    // LocalStorage (non-sensitive UI data)
+    USER_DISPLAY: 'user_display', // Name, avatar for navbar
+    ACTIVE_BRAND: 'active_brand', // Selected brand ID
+    THEME: 'theme_preference', // Dark/light mode
+    LANGUAGE: 'language', // en, fr, ar
+    SIDEBAR_STATE: 'sidebar_state', // Collapsed/expanded
+  },
+  TOKEN_HEADER: 'Authorization',
+  TOKEN_PREFIX: 'Bearer',
 } as const;
 
 // Toast Configuration

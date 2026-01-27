@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from 'react';
-
-// Get encryption secret from environment variables
-// Falls back to a default value if the env var is not available (development only)
-const ENCRYPTION_SECRET: string =
-  (import.meta.env.VITE_ENCRYPTION_SECRET as string | undefined) ||
-  'dev-fallback-key-not-for-production';
+import {
+  setSecureCookie,
+  getSecureCookie,
+  removeSecureCookie,
+} from '@/utils/cookieStorage';
 
 /**
  * Hook for storing and retrieving data from localStorage (plain text)
@@ -103,15 +102,17 @@ export function useLocalStorage<T>(
 }
 
 /**
- * Hook for storing and retrieving encrypted data from localStorage
- * Uses Web Crypto API for strong encryption
- * @param key - Storage key
+ * Hook for storing and retrieving encrypted data from cookies
+ * Uses Web Crypto API for strong encryption with cookie storage
+ * @param key - Storage key (cookie name)
  * @param initialValue - Default value if none exists
+ * @param options - Cookie options (expires, secure, etc.)
  * @returns [storedValue, setValue, removeValue, isLoading, error]
  */
 export function useSecureStorage(
   key: string,
-  initialValue: string = ''
+  initialValue: string = '',
+  options?: { expires?: number }
 ): [
   string,
   (value: string) => Promise<void>,
@@ -123,143 +124,22 @@ export function useSecureStorage(
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<Error | null>(null);
 
-  // Function to encrypt data using Web Crypto API
-  const encryptData = useCallback(async (text: string): Promise<string> => {
-    try {
-      // Convert encryption key to bytes
-      const encoder = new TextEncoder();
-      const secretKeyData = encoder.encode(ENCRYPTION_SECRET);
-
-      // Generate random salt and IV
-      const salt = window.crypto.getRandomValues(new Uint8Array(16));
-      const iv = window.crypto.getRandomValues(new Uint8Array(12));
-
-      // Import the secret as a raw key
-      const importedKey = await window.crypto.subtle.importKey(
-        'raw',
-        secretKeyData,
-        { name: 'PBKDF2' },
-        false,
-        ['deriveKey']
-      );
-
-      // Derive an AES-GCM key from the imported key
-      const derivedKey = await window.crypto.subtle.deriveKey(
-        {
-          name: 'PBKDF2',
-          salt,
-          iterations: 100000,
-          hash: 'SHA-256',
-        },
-        importedKey,
-        { name: 'AES-GCM', length: 256 },
-        false,
-        ['encrypt']
-      );
-
-      // Encrypt the data
-      const dataToEncrypt = encoder.encode(text);
-      const encryptedData = await window.crypto.subtle.encrypt(
-        { name: 'AES-GCM', iv },
-        derivedKey,
-        dataToEncrypt
-      );
-
-      // Combine salt, IV, and encrypted data
-      const result = new Uint8Array(
-        salt.length + iv.length + encryptedData.byteLength
-      );
-      result.set(salt, 0);
-      result.set(iv, salt.length);
-      result.set(new Uint8Array(encryptedData), salt.length + iv.length);
-
-      // Convert to base64 for storage
-      return btoa(String.fromCharCode(...result));
-    } catch (error) {
-      console.error('Encryption error:', error);
-      throw new Error('Failed to encrypt data');
-    }
-  }, []);
-
-  // Function to decrypt data using Web Crypto API
-  const decryptData = useCallback(
-    async (encryptedText: string): Promise<string> => {
-      try {
-        // Convert base64 back to array buffer
-        const encryptedBuffer = Uint8Array.from(atob(encryptedText), c =>
-          c.charCodeAt(0)
-        );
-
-        // Extract salt, IV, and encrypted data
-        const salt = encryptedBuffer.slice(0, 16);
-        const iv = encryptedBuffer.slice(16, 28);
-        const encryptedData = encryptedBuffer.slice(28);
-
-        // Convert encryption key to bytes
-        const encoder = new TextEncoder();
-        const secretKeyData = encoder.encode(ENCRYPTION_SECRET);
-
-        // Import the secret as a raw key
-        const importedKey = await window.crypto.subtle.importKey(
-          'raw',
-          secretKeyData,
-          { name: 'PBKDF2' },
-          false,
-          ['deriveKey']
-        );
-
-        // Derive the key using the extracted salt
-        const derivedKey = await window.crypto.subtle.deriveKey(
-          {
-            name: 'PBKDF2',
-            salt,
-            iterations: 100000,
-            hash: 'SHA-256',
-          },
-          importedKey,
-          { name: 'AES-GCM', length: 256 },
-          false,
-          ['decrypt']
-        );
-
-        // Decrypt the data
-        const decryptedData = await window.crypto.subtle.decrypt(
-          { name: 'AES-GCM', iv },
-          derivedKey,
-          encryptedData
-        );
-
-        // Convert decrypted data to string
-        const decoder = new TextDecoder();
-        return decoder.decode(decryptedData);
-      } catch (error) {
-        console.error('Decryption error:', error);
-        throw new Error('Failed to decrypt data');
-      }
-    },
-    []
-  );
-
-  // Load initial value from localStorage
+  // Load initial value from cookie
   useEffect(() => {
     async function loadEncryptedValue() {
       setIsLoading(true);
       setError(null);
 
       try {
-        const encryptedValue = window.localStorage.getItem(key);
+        const cookieValue = await getSecureCookie(key);
 
-        if (encryptedValue !== null) {
-          const decryptedValue = await decryptData(encryptedValue);
-          setStoredValue(decryptedValue);
+        if (cookieValue !== null) {
+          setStoredValue(cookieValue);
         } else {
           setStoredValue(initialValue);
         }
       } catch (error) {
-        console.error(
-          `Error reading encrypted localStorage key "${key}":`,
-          error
-        );
+        console.error(`Error reading encrypted cookie "${key}":`, error);
         setError(error instanceof Error ? error : new Error(String(error)));
         setStoredValue(initialValue);
       } finally {
@@ -268,9 +148,9 @@ export function useSecureStorage(
     }
 
     void loadEncryptedValue();
-  }, [key, initialValue, decryptData]);
+  }, [key, initialValue]);
 
-  // Function to save encrypted value to localStorage
+  // Function to save encrypted value to cookie
   const setValue = useCallback(
     async (value: string): Promise<void> => {
       setIsLoading(true);
@@ -280,32 +160,29 @@ export function useSecureStorage(
         // Update state
         setStoredValue(value);
 
-        // Encrypt and save to localStorage
-        const encryptedValue = await encryptData(value);
-        window.localStorage.setItem(key, encryptedValue);
+        // Encrypt and save to cookie
+        await setSecureCookie(key, value, {
+          expires: options?.expires || 7,
+          secure: import.meta.env.PROD,
+          sameSite: 'strict',
+        });
       } catch (error) {
-        console.error(
-          `Error setting encrypted localStorage key "${key}":`,
-          error
-        );
+        console.error(`Error setting encrypted cookie "${key}":`, error);
         setError(error instanceof Error ? error : new Error(String(error)));
       } finally {
         setIsLoading(false);
       }
     },
-    [key, encryptData]
+    [key, options]
   );
 
-  // Function to remove from localStorage
+  // Function to remove cookie
   const removeValue = useCallback(() => {
     try {
-      window.localStorage.removeItem(key);
+      removeSecureCookie(key);
       setStoredValue(initialValue);
     } catch (error) {
-      console.error(
-        `Error removing encrypted localStorage key "${key}":`,
-        error
-      );
+      console.error(`Error removing encrypted cookie "${key}":`, error);
       setError(error instanceof Error ? error : new Error(String(error)));
     }
   }, [key, initialValue]);

@@ -4,6 +4,8 @@ export * from './useStorage';
 export * from './useDialogs';
 export * from './useUserFilters';
 export * from './useUserActions';
+export * from './useAuth';
+export * from './usePreferences';
 
 // Add more hooks exports here as you create them
 // Example:

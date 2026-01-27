@@ -9,17 +9,29 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from "@/components/ui/sidebar"
+import { useAuthStore } from "@/store/authStore"
+import { hasRole } from "@/hooks/useAuth"
 
 export function NavMain({
   items,
 }: {
-  items: {
+  readonly items: readonly {
     title: string
     url: string
     icon?: Icon
+    requiredRole?: string
   }[]
 }) {
   const location = useLocation();
+  const { user } = useAuthStore();
+
+  // Filter items based on user role
+  const visibleItems = items.filter(item => {
+    if (!item.requiredRole) return true;
+    // Check if user and user.roles exist before checking role
+    if (!user || !user.roles) return false;
+    return hasRole(user, item.requiredRole);
+  });
 
   return (
     <SidebarGroup>
@@ -47,7 +59,7 @@ export function NavMain({
           </SidebarMenuItem>
         </SidebarMenu>
         <SidebarMenu>
-          {items.map((item) => (
+          {visibleItems.map((item) => (
             <SidebarMenuItem key={item.title}>
               <SidebarMenuButton 
                 tooltip={item.title} 

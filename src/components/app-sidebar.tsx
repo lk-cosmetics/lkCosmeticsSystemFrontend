@@ -11,6 +11,9 @@ import {
   IconSearch,
   IconSettings,
   IconUsers,
+  IconBuilding,
+  IconTag,
+  IconShoppingCart,
 } from "@tabler/icons-react"
 import { NavMain } from "@/components/nav-main"
 import { NavSecondary } from "@/components/nav-secondary"
@@ -64,6 +67,24 @@ const data = {
       url: "/dashboard/add-user",
       icon: IconUsers,
     },
+    {
+      title: "Companies",
+      url: "/dashboard/companies",
+      icon: IconBuilding,
+      requiredRole: "SuperAdmin",
+    },
+    {
+      title: "Brands",
+      url: "/dashboard/brands",
+      icon: IconTag,
+      requiredRole: "SuperAdmin",
+    },
+    {
+      title: "Sales Channels",
+      url: "/dashboard/sales-channels",
+      icon: IconShoppingCart,
+      requiredRole: "SuperAdmin",
+    },
   ],
   navClouds: [
     {
@@ -116,7 +137,7 @@ const data = {
   navSecondary: [
     {
       title: "Settings",
-      url: "#",
+      url: "/dashboard/settings",
       icon: IconSettings,
     },
     {
