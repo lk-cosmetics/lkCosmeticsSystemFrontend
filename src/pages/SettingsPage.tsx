@@ -49,6 +49,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { userService } from '@/services/user.service';
+import { waitForAuthInit } from '@/store/authStore';
 import type { UserDetails, UpdateUserRequest } from '@/types';
 
 // Tunisia cities constant
@@ -109,6 +110,8 @@ export default function SettingsPage() {
     setIsLoading(true);
     setError(null);
     try {
+      // Wait for auth to be initialized before making API call
+      await waitForAuthInit();
       const userData = await userService.getCurrentUser();
       setUser(userData);
       // Initialize edit form data
@@ -131,7 +134,7 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    fetchUser();
+    void fetchUser();
   }, [fetchUser]);
 
   // Extract error message

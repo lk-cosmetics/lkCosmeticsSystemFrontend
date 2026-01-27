@@ -87,21 +87,40 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 }));
 
-// Initialize auth state on app load
-authService.initializeAuth()
-  .then(() => {
-    const user = authService.getStoredUser();
-    const isAuth = authService.isAuthenticated();
+// Track initialization state
+let authInitialized = false;
+let authInitializing: Promise<void> | null = null;
+
+/**
+ * Wait for auth to be initialized
+ * Call this before making authenticated API requests
+ */
+export async function waitForAuthInit(): Promise<void> {
+  if (authInitialized) return;
+  if (authInitializing) return authInitializing;
+  
+  authInitializing = authService.initializeAuth()
+    .then(() => {
+      const user = authService.getStoredUser();
+      const isAuth = authService.isAuthenticated();
+      
+      if (user && isAuth) {
+        useAuthStore.setState({
+          user,
+          isAuthenticated: true,
+        });
+      }
+      authInitialized = true;
+    })
+    .catch((error) => {
+      console.error('Failed to initialize auth state:', error);
+      authInitialized = true; // Mark as done even on error to prevent infinite waiting
+    });
     
-    if (user && isAuth) {
-      useAuthStore.setState({
-        user,
-        isAuthenticated: true,
-      });
-    }
-  })
-  .catch((error) => {
-    console.error('Failed to initialize auth state:', error);
-  });
+  return authInitializing;
+}
+
+// Start initialization immediately
+void waitForAuthInit();
 
 export default useAuthStore;

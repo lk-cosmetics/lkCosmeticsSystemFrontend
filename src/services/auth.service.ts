@@ -145,13 +145,13 @@ class AuthService {
       const userStr = localStorage.getItem(AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY);
       if (!userStr) return null;
       
-      const userData = JSON.parse(userStr);
+      const userData = JSON.parse(userStr) as { role?: string; permissions?: string[] };
       // Transform role string to roles array for consistency
       return {
         ...userData,
         roles: userData.role ? [userData.role] : [],
-        permissions: userData.permissions || [],
-      };
+        permissions: userData.permissions ?? [],
+      } as User;
     } catch {
       return null;
     }
@@ -185,11 +185,22 @@ class AuthService {
       
       if (userData && !accessTokenMemory) {
         // Try to refresh the access token using HttpOnly cookie
-        await this.refreshToken();
+        try {
+          await this.refreshToken();
+          console.log('✅ Auth initialized with refreshed token');
+        } catch {
+          // Refresh failed - clear user data but don't redirect
+          // User will be redirected when they try to access a protected route
+          console.warn('⚠️ Token refresh failed during init, user needs to re-login');
+          localStorage.removeItem(AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY);
+          accessTokenMemory = null;
+        }
       }
     } catch (error) {
       console.error('Failed to initialize auth:', error);
-      this.logout();
+      // Don't call logout here - just clear the data silently
+      localStorage.removeItem(AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY);
+      accessTokenMemory = null;
     }
   }
 }
