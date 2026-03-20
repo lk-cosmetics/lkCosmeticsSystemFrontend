@@ -1,29 +1,39 @@
-import { IconCirclePlusFilled, IconMail, type Icon } from "@tabler/icons-react"
-import { Link, useLocation } from "react-router-dom"
+import { IconCirclePlusFilled, IconMail, type Icon } from '@tabler/icons-react';
+import { Link, useLocation } from 'react-router-dom';
 
-import { Button } from "@/components/ui/button"
+import { Button } from '@/components/ui/button';
 import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
-} from "@/components/ui/sidebar"
-import { useAuthStore } from "@/store/authStore"
-import { hasRole } from "@/hooks/useAuth"
+  useSidebar,
+} from '@/components/ui/sidebar';
+import { useAuthStore } from '@/store/authStore';
+import { hasRole } from '@/hooks/useAuth';
 
 export function NavMain({
   items,
 }: {
   readonly items: readonly {
-    title: string
-    url: string
-    icon?: Icon
-    requiredRole?: string
-  }[]
+    title: string;
+    url: string;
+    icon?: Icon;
+    requiredRole?: string;
+  }[];
 }) {
   const location = useLocation();
   const { user } = useAuthStore();
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  const handleNavClick = () => {
+    if (isMobile) {
+      setOpenMobile(false);
+    }
+  };
+
+  const isRoutable = (url: string) => url.trim() !== '' && url !== '#';
 
   // Filter items based on user role
   const visibleItems = items.filter(item => {
@@ -43,7 +53,7 @@ export function NavMain({
               className="bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground min-w-8 duration-200 ease-linear"
               asChild
             >
-              <Link to="/dashboard/add-user">
+              <Link to="/dashboard/add-user" onClick={handleNavClick}>
                 <IconCirclePlusFilled />
                 <span>Quick Create</span>
               </Link>
@@ -59,22 +69,34 @@ export function NavMain({
           </SidebarMenuItem>
         </SidebarMenu>
         <SidebarMenu>
-          {visibleItems.map((item) => (
+          {visibleItems.map(item => (
             <SidebarMenuItem key={item.title}>
-              <SidebarMenuButton 
-                tooltip={item.title} 
-                asChild
-                isActive={location.pathname === item.url}
-              >
-                <Link to={item.url}>
+              {isRoutable(item.url) ? (
+                <SidebarMenuButton
+                  tooltip={item.title}
+                  asChild
+                  isActive={location.pathname === item.url}
+                >
+                  <Link to={item.url} onClick={handleNavClick}>
+                    {item.icon && <item.icon />}
+                    <span>{item.title}</span>
+                  </Link>
+                </SidebarMenuButton>
+              ) : (
+                <SidebarMenuButton
+                  tooltip={`${item.title} (Coming soon)`}
+                  disabled
+                  aria-disabled="true"
+                  className="cursor-not-allowed opacity-60"
+                >
                   {item.icon && <item.icon />}
                   <span>{item.title}</span>
-                </Link>
-              </SidebarMenuButton>
+                </SidebarMenuButton>
+              )}
             </SidebarMenuItem>
           ))}
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
-  )
+  );
 }

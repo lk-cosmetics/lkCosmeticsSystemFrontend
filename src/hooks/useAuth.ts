@@ -6,25 +6,37 @@
 import { useAuthStore } from '@/store/authStore';
 import type { User } from '@/types';
 
+function normalizeRoleName(role: string): string {
+  return role.replace(/[\s_]+/g, '').toUpperCase();
+}
+
 /**
  * Check if user has a specific role
  */
 export function hasRole(user: User | null, role: string): boolean {
-  return user?.roles?.includes(role) ?? false;
+  if (!user || !role) return false;
+
+  const targetRole = normalizeRoleName(role);
+  const userRoles = [
+    ...(user.roles ?? []),
+    ...(user.role ? [user.role] : []),
+  ].map(normalizeRoleName);
+
+  return userRoles.includes(targetRole);
 }
 
 /**
  * Check if user has any of the specified roles
  */
 export function hasAnyRole(user: User | null, roles: string[]): boolean {
-  return roles.some((role) => hasRole(user, role));
+  return roles.some(role => hasRole(user, role));
 }
 
 /**
  * Check if user has all specified roles
  */
 export function hasAllRoles(user: User | null, roles: string[]): boolean {
-  return roles.every((role) => hasRole(user, role));
+  return roles.every(role => hasRole(user, role));
 }
 
 /**
@@ -41,7 +53,7 @@ export function hasAnyPermission(
   user: User | null,
   permissions: string[]
 ): boolean {
-  return permissions.some((permission) => hasPermission(user, permission));
+  return permissions.some(permission => hasPermission(user, permission));
 }
 
 /**
@@ -51,14 +63,14 @@ export function hasAllPermissions(
   user: User | null,
   permissions: string[]
 ): boolean {
-  return permissions.every((permission) => hasPermission(user, permission));
+  return permissions.every(permission => hasPermission(user, permission));
 }
 
 /**
  * Hook to check user roles
  */
 export function useRole(role: string): boolean {
-  const user = useAuthStore((state) => state.user);
+  const user = useAuthStore(state => state.user);
   return hasRole(user, role);
 }
 
@@ -66,7 +78,7 @@ export function useRole(role: string): boolean {
  * Hook to check user permissions
  */
 export function usePermission(permission: string): boolean {
-  const user = useAuthStore((state) => state.user);
+  const user = useAuthStore(state => state.user);
   return hasPermission(user, permission);
 }
 
@@ -74,15 +86,15 @@ export function usePermission(permission: string): boolean {
  * Hook to get current user
  */
 export function useCurrentUser(): User | null {
-  return useAuthStore((state) => state.user);
+  return useAuthStore(state => state.user);
 }
 
 /**
  * Hook for complex authorization checks
  */
 export function useAuth() {
-  const user = useAuthStore((state) => state.user);
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const user = useAuthStore(state => state.user);
+  const isAuthenticated = useAuthStore(state => state.isAuthenticated);
 
   return {
     user,
@@ -100,17 +112,17 @@ export function useAuth() {
 
 /**
  * Example Usage:
- * 
+ *
  * // Simple role check
  * const isAdmin = useRole('admin');
- * 
+ *
  * // Simple permission check
  * const canEdit = usePermission('write:users');
- * 
+ *
  * // Complex checks
  * const { hasAnyRole, hasPermission } = useAuth();
  * const canManageUsers = hasAnyRole(['admin', 'manager']) && hasPermission('write:users');
- * 
+ *
  * // Conditional rendering
  * return (
  *   <div>

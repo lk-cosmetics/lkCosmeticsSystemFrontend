@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { 
-  Eye, 
-  Pencil, 
-  Trash2, 
-  Search, 
+import {
+  Eye,
+  Pencil,
+  Trash2,
+  Search,
   Filter,
   MoreVertical,
   Building2,
@@ -12,7 +12,7 @@ import {
   Store,
   Plus,
   Upload,
-  X
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -61,24 +61,46 @@ import {
 } from '@/components/ui/select';
 import { useAuthStore } from '@/store/authStore';
 import { hasRole } from '@/hooks/useAuth';
-import { brandService } from '@/services/brand.service';
-import { companyService } from '@/services/company.service';
-import type { Brand, Company } from '@/types';
+import {
+  useBrands,
+  useCompanies,
+  useCreateBrand,
+  usePartialUpdateBrand,
+  useDeleteBrand,
+} from '@/hooks/queries';
+import type { Brand } from '@/types';
 
 export default function BrandsPage() {
   const { user } = useAuthStore();
-  const [brands, setBrands] = useState<Brand[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
+  const isSuperAdmin = hasRole(user, 'SuperAdmin');
+
+  // React Query - Fetch data with caching
+  const {
+    data: brands = [],
+    isLoading,
+    error: fetchError,
+    refetch,
+  } = useBrands();
+  const { data: companies = [] } = useCompanies();
+
+  // React Query - Mutations
+  const createBrandMutation = useCreateBrand();
+  const updateBrandMutation = usePartialUpdateBrand();
+  const deleteBrandMutation = useDeleteBrand();
+
+  // Local UI state (not server state)
   const [filteredBrands, setFilteredBrands] = useState<Brand[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [companyFilter, setCompanyFilter] = useState<string>('all');
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   // Dialog states
   const [selectedBrand, setSelectedBrand] = useState<Brand | null>(null);
   const [brandToDelete, setBrandToDelete] = useState<Brand | null>(null);
-  const [editFormData, setEditFormData] = useState<{ id: number; name: string; company: number } | null>(null);
+  const [editFormData, setEditFormData] = useState<{
+    id: number;
+    name: string;
+    company: number;
+  } | null>(null);
 
   const [viewDialog, setViewDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
@@ -93,80 +115,65 @@ export default function BrandsPage() {
   const [newBrandName, setNewBrandName] = useState('');
   const [newBrandCompany, setNewBrandCompany] = useState<string>('');
   const [newBrandLogo, setNewBrandLogo] = useState<File | null>(null);
-  const [newBrandLogoPreview, setNewBrandLogoPreview] = useState<string | null>(null);
+  const [newBrandLogoPreview, setNewBrandLogoPreview] = useState<string | null>(
+    null
+  );
 
   // Edit brand logo state
   const [editBrandLogo, setEditBrandLogo] = useState<File | null>(null);
-  const [editBrandLogoPreview, setEditBrandLogoPreview] = useState<string | null>(null);
-
-  // Check if user is SuperAdmin
-  const isSuperAdmin = hasRole(user, 'SuperAdmin');
+  const [editBrandLogoPreview, setEditBrandLogoPreview] = useState<
+    string | null
+  >(null);
 
   // Helper function to extract error messages
   const extractErrorMessage = (error: unknown): string => {
     const defaultMsg = 'An error occurred. Please try again.';
-    
+
     if (!error || typeof error !== 'object') {
       return defaultMsg;
     }
 
     const err = error as { response?: { data?: unknown }; message?: string };
-    
+
     // Handle API response errors
     if (err.response?.data) {
       const data = err.response.data;
-      
+
       // Handle field validation errors
       if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
-        const fieldErrors = Object.entries(data as Record<string, unknown>)
-          .flatMap(([field, messages]) => {
-            const fieldName = field.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-            if (Array.isArray(messages)) {
-              return messages.map(msg => `${fieldName}: ${msg}`);
-            }
-            return typeof messages === 'string' ? [`${fieldName}: ${messages}`] : [];
-          });
-        
+        const fieldErrors = Object.entries(
+          data as Record<string, unknown>
+        ).flatMap(([field, messages]) => {
+          const fieldName = field
+            .split('_')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+          if (Array.isArray(messages)) {
+            return messages.map(msg => `${fieldName}: ${msg}`);
+          }
+          return typeof messages === 'string'
+            ? [`${fieldName}: ${messages}`]
+            : [];
+        });
+
         if (fieldErrors.length > 0) {
           return 'Validation errors:\n\n' + fieldErrors.join('\n');
         }
-        
+
         const dataObj = data as { detail?: string; message?: string };
         return dataObj.detail ?? dataObj.message ?? defaultMsg;
       }
-      
+
       if (typeof data === 'string') return data;
     }
-    
+
     // Handle network/timeout errors
-    if (err.message?.includes('Network Error')) return 'Network error. Please check your connection.';
-    if (err.message?.includes('timeout')) return 'Request timeout. Please try again.';
-    
+    if (err.message?.includes('Network Error'))
+      return 'Network error. Please check your connection.';
+    if (err.message?.includes('timeout'))
+      return 'Request timeout. Please try again.';
+
     return err.message ?? defaultMsg;
-  };
-
-  // Fetch brands and companies on mount
-  useEffect(() => {
-    fetchData();
-  }, []);
-
-  const fetchData = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const [brandsData, companiesData] = await Promise.all([
-        brandService.getAllBrands(),
-        isSuperAdmin ? companyService.getAllCompanies() : Promise.resolve([])
-      ]);
-      setBrands(brandsData);
-      setFilteredBrands(brandsData);
-      setCompanies(companiesData);
-    } catch (err) {
-      setError('Failed to load brands. Please try again.');
-      console.error('Error fetching brands:', err);
-    } finally {
-      setIsLoading(false);
-    }
   };
 
   // Filter brands
@@ -177,7 +184,7 @@ export default function BrandsPage() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
-        (brand) =>
+        brand =>
           brand.name.toLowerCase().includes(query) ||
           brand.company_name.toLowerCase().includes(query)
       );
@@ -185,7 +192,9 @@ export default function BrandsPage() {
 
     // Company filter
     if (companyFilter !== 'all') {
-      filtered = filtered.filter((brand) => brand.company === Number(companyFilter));
+      filtered = filtered.filter(
+        brand => brand.company === Number(companyFilter)
+      );
     }
 
     setFilteredBrands(filtered);
@@ -215,13 +224,15 @@ export default function BrandsPage() {
       if (editBrandLogo) {
         updateData.logo = editBrandLogo;
       }
-      await brandService.partialUpdateBrand(editFormData.id, updateData);
+      await updateBrandMutation.mutateAsync({
+        id: editFormData.id,
+        data: updateData,
+      });
       setSuccessMessage('Brand updated successfully!');
       setSuccessDialog(true);
       setEditDialog(false);
       setEditBrandLogo(null);
       setEditBrandLogoPreview(null);
-      fetchData();
     } catch (err) {
       console.error('Error updating brand:', err);
       setEditDialog(false);
@@ -239,11 +250,10 @@ export default function BrandsPage() {
     if (!brandToDelete) return;
 
     try {
-      await brandService.deleteBrand(brandToDelete.id);
+      await deleteBrandMutation.mutateAsync(brandToDelete.id);
       setSuccessMessage('Brand deleted successfully!');
       setSuccessDialog(true);
       setDeleteDialog(false);
-      fetchData();
     } catch (err) {
       console.error('Error deleting brand:', err);
       setDeleteDialog(false);
@@ -267,7 +277,7 @@ export default function BrandsPage() {
       if (newBrandLogo) {
         createData.logo = newBrandLogo;
       }
-      await brandService.createBrand(createData);
+      await createBrandMutation.mutateAsync(createData);
       setSuccessMessage('Brand created successfully!');
       setSuccessDialog(true);
       setAddDialog(false);
@@ -275,7 +285,6 @@ export default function BrandsPage() {
       setNewBrandCompany('');
       setNewBrandLogo(null);
       setNewBrandLogoPreview(null);
-      fetchData();
     } catch (err) {
       console.error('Error creating brand:', err);
       setAddDialog(false);
@@ -319,7 +328,9 @@ export default function BrandsPage() {
     setEditBrandLogoPreview(null);
   };
 
-  const getChannelTypeBadgeVariant = (type: string): 'default' | 'secondary' => {
+  const getChannelTypeBadgeVariant = (
+    type: string
+  ): 'default' | 'secondary' => {
     return type === 'WOOCOMMERCE' ? 'default' : 'secondary';
   };
 
@@ -334,12 +345,16 @@ export default function BrandsPage() {
     );
   }
 
-  if (error) {
+  if (fetchError) {
     return (
       <div className="flex flex-1 items-center justify-center p-4">
         <Card className="p-8 max-w-md text-center">
-          <p className="text-red-500">{error}</p>
-          <Button onClick={fetchData} className="mt-4">
+          <p className="text-red-500">
+            {fetchError instanceof Error
+              ? fetchError.message
+              : 'Failed to load brands'}
+          </p>
+          <Button onClick={() => refetch()} className="mt-4">
             Retry
           </Button>
         </Card>
@@ -353,7 +368,9 @@ export default function BrandsPage() {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Brands Management</h1>
+            <h1 className="text-3xl font-bold tracking-tight">
+              Brands Management
+            </h1>
             <p className="text-l-text-2 dark:text-d-text-2 mt-2">
               Manage brands and their sales channels
             </p>
@@ -373,7 +390,7 @@ export default function BrandsPage() {
               <Input
                 placeholder="Search by brand name or company..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={e => setSearchQuery(e.target.value)}
                 className="pl-10"
               />
             </div>
@@ -387,7 +404,7 @@ export default function BrandsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Companies</SelectItem>
-                  {companies.map((company) => (
+                  {companies.map(company => (
                     <SelectItem key={company.id} value={String(company.id)}>
                       {company.name}
                     </SelectItem>
@@ -398,7 +415,9 @@ export default function BrandsPage() {
           </div>
 
           <div className="mt-4 flex items-center gap-2 text-sm text-l-text-2 dark:text-d-text-2">
-            <span>Showing {filteredBrands.length} of {brands.length} brands</span>
+            <span>
+              Showing {filteredBrands.length} of {brands.length} brands
+            </span>
           </div>
         </Card>
       </div>
@@ -418,13 +437,16 @@ export default function BrandsPage() {
           <TableBody>
             {filteredBrands.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-center py-8 text-l-text-2 dark:text-d-text-2">
+                <TableCell
+                  colSpan={5}
+                  className="text-center py-8 text-l-text-2 dark:text-d-text-2"
+                >
                   No brands found
                 </TableCell>
               </TableRow>
             ) : (
-              filteredBrands.map((brand) => (
-                <TableRow 
+              filteredBrands.map(brand => (
+                <TableRow
                   key={brand.id}
                   className="cursor-pointer hover:bg-l-bg-2 dark:hover:bg-d-bg-2 transition-colors"
                   onClick={() => handleView(brand)}
@@ -434,17 +456,21 @@ export default function BrandsPage() {
                     <div className="flex items-center gap-3">
                       <div className="size-10 rounded-full overflow-hidden bg-l-bg-2 dark:bg-d-bg-2 flex items-center justify-center border border-l-border dark:border-d-border flex-shrink-0">
                         {brand.logo ? (
-                          <img 
-                            src={brand.logo} 
+                          <img
+                            src={brand.logo}
                             alt={brand.name}
                             className="size-full object-cover"
-                            onError={(e) => {
+                            onError={e => {
                               e.currentTarget.style.display = 'none';
-                              e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                              e.currentTarget.nextElementSibling?.classList.remove(
+                                'hidden'
+                              );
                             }}
                           />
                         ) : null}
-                        <span className={`text-xs font-semibold ${brand.logo ? 'hidden' : ''}`}>
+                        <span
+                          className={`text-xs font-semibold ${brand.logo ? 'hidden' : ''}`}
+                        >
                           {brand.name.substring(0, 2).toUpperCase()}
                         </span>
                       </div>
@@ -458,7 +484,9 @@ export default function BrandsPage() {
                   <TableCell>
                     <div className="flex items-center gap-2 text-sm">
                       <Building2 className="size-4 text-l-text-3 dark:text-d-text-3" />
-                      <span className="text-l-text-2 dark:text-d-text-2">{brand.company_name}</span>
+                      <span className="text-l-text-2 dark:text-d-text-2">
+                        {brand.company_name}
+                      </span>
                     </div>
                   </TableCell>
 
@@ -469,20 +497,23 @@ export default function BrandsPage() {
                         <Store className="size-3" />
                         {brand.channels_count}
                       </Badge>
-                      {brand.sales_channels?.slice(0, 2).map((channel) => (
-                        <Badge 
-                          key={channel.id} 
-                          variant={getChannelTypeBadgeVariant(channel.channel_type)}
+                      {brand.sales_channels?.slice(0, 2).map(channel => (
+                        <Badge
+                          key={channel.id}
+                          variant={getChannelTypeBadgeVariant(
+                            channel.channel_type
+                          )}
                           className="text-xs"
                         >
                           {channel.channel_type}
                         </Badge>
                       ))}
-                      {brand.sales_channels && brand.sales_channels.length > 2 && (
-                        <Badge variant="outline" className="text-xs">
-                          +{brand.sales_channels.length - 2}
-                        </Badge>
-                      )}
+                      {brand.sales_channels &&
+                        brand.sales_channels.length > 2 && (
+                          <Badge variant="outline" className="text-xs">
+                            +{brand.sales_channels.length - 2}
+                          </Badge>
+                        )}
                     </div>
                   </TableCell>
 
@@ -495,7 +526,10 @@ export default function BrandsPage() {
                   </TableCell>
 
                   {/* Actions */}
-                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                  <TableCell
+                    className="text-right"
+                    onClick={e => e.stopPropagation()}
+                  >
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon">
@@ -514,7 +548,7 @@ export default function BrandsPage() {
                           Edit Brand
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => handleDelete(brand)}
                           className="text-red-600 dark:text-red-400"
                         >
@@ -540,29 +574,35 @@ export default function BrandsPage() {
               Complete information about the brand
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedBrand && (
             <div className="space-y-6">
               {/* Logo and Name */}
               <div className="flex items-center gap-4 pb-4 border-b">
                 <div className="size-16 rounded-full overflow-hidden bg-l-bg-2 dark:bg-d-bg-2 flex items-center justify-center border-2 border-l-border dark:border-d-border">
                   {selectedBrand.logo ? (
-                    <img 
-                      src={selectedBrand.logo} 
+                    <img
+                      src={selectedBrand.logo}
                       alt={selectedBrand.name}
                       className="size-full object-cover"
-                      onError={(e) => {
+                      onError={e => {
                         e.currentTarget.style.display = 'none';
-                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
+                        e.currentTarget.nextElementSibling?.classList.remove(
+                          'hidden'
+                        );
                       }}
                     />
                   ) : null}
-                  <div className={`flex items-center justify-center size-full text-lg font-semibold ${selectedBrand.logo ? 'hidden' : ''}`}>
+                  <div
+                    className={`flex items-center justify-center size-full text-lg font-semibold ${selectedBrand.logo ? 'hidden' : ''}`}
+                  >
                     {selectedBrand.name.substring(0, 2).toUpperCase()}
                   </div>
                 </div>
                 <div>
-                  <h3 className="text-2xl font-semibold">{selectedBrand.name}</h3>
+                  <h3 className="text-2xl font-semibold">
+                    {selectedBrand.name}
+                  </h3>
                   <div className="flex items-center gap-2 mt-2 text-sm text-l-text-2 dark:text-d-text-2">
                     <Building2 className="size-4" />
                     {selectedBrand.company_name}
@@ -578,80 +618,110 @@ export default function BrandsPage() {
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Brand ID</span>
+                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                      Brand ID
+                    </span>
                     <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
-                      <span className="text-sm font-mono">{selectedBrand.id}</span>
+                      <span className="text-sm font-mono">
+                        {selectedBrand.id}
+                      </span>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Company</span>
+                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                      Company
+                    </span>
                     <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                       <Building2 className="size-4 text-accent-1" />
-                      <span className="text-sm">{selectedBrand.company_name}</span>
+                      <span className="text-sm">
+                        {selectedBrand.company_name}
+                      </span>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Channels Count</span>
+                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                      Channels Count
+                    </span>
                     <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                       <Store className="size-4 text-accent-1" />
-                      <span className="text-sm font-semibold">{selectedBrand.channels_count} channels</span>
+                      <span className="text-sm font-semibold">
+                        {selectedBrand.channels_count} channels
+                      </span>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Created</span>
+                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                      Created
+                    </span>
                     <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                       <Calendar className="size-4 text-accent-1" />
-                      <span className="text-sm">{new Date(selectedBrand.created_at).toLocaleString()}</span>
+                      <span className="text-sm">
+                        {new Date(selectedBrand.created_at).toLocaleString()}
+                      </span>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Last Updated</span>
+                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                      Last Updated
+                    </span>
                     <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                       <Calendar className="size-4 text-accent-1" />
-                      <span className="text-sm">{new Date(selectedBrand.updated_at).toLocaleString()}</span>
+                      <span className="text-sm">
+                        {new Date(selectedBrand.updated_at).toLocaleString()}
+                      </span>
                     </div>
                   </div>
                 </div>
               </div>
 
               {/* Sales Channels */}
-              {selectedBrand.sales_channels && selectedBrand.sales_channels.length > 0 && (
-                <div className="space-y-3">
-                  <h4 className="text-sm font-semibold text-l-text-2 dark:text-d-text-2 flex items-center gap-2">
-                    <Store className="size-4" />
-                    Sales Channels
-                  </h4>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {selectedBrand.sales_channels.map((channel) => (
-                      <div 
-                        key={channel.id} 
-                        className="flex items-center justify-between p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg"
-                      >
-                        <span className="text-sm font-medium">{channel.name}</span>
-                        <Badge variant={getChannelTypeBadgeVariant(channel.channel_type)}>
-                          {channel.channel_type}
-                        </Badge>
-                      </div>
-                    ))}
+              {selectedBrand.sales_channels &&
+                selectedBrand.sales_channels.length > 0 && (
+                  <div className="space-y-3">
+                    <h4 className="text-sm font-semibold text-l-text-2 dark:text-d-text-2 flex items-center gap-2">
+                      <Store className="size-4" />
+                      Sales Channels
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                      {selectedBrand.sales_channels.map(channel => (
+                        <div
+                          key={channel.id}
+                          className="flex items-center justify-between p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg"
+                        >
+                          <span className="text-sm font-medium">
+                            {channel.name}
+                          </span>
+                          <Badge
+                            variant={getChannelTypeBadgeVariant(
+                              channel.channel_type
+                            )}
+                          >
+                            {channel.channel_type}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )}
 
               {/* Action Buttons */}
               <div className="flex gap-3 pt-4 border-t">
-                <Button onClick={() => {
-                  setViewDialog(false);
-                  handleEdit(selectedBrand);
-                }} className="flex-1 gap-2">
+                <Button
+                  onClick={() => {
+                    setViewDialog(false);
+                    handleEdit(selectedBrand);
+                  }}
+                  className="flex-1 gap-2"
+                >
                   <Pencil className="size-4" />
                   Edit Brand
                 </Button>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={() => setViewDialog(false)}
                   className="flex-1"
                 >
@@ -668,9 +738,7 @@ export default function BrandsPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Brand</DialogTitle>
-            <DialogDescription>
-              Update brand information
-            </DialogDescription>
+            <DialogDescription>Update brand information</DialogDescription>
           </DialogHeader>
 
           {editFormData && (
@@ -682,7 +750,7 @@ export default function BrandsPage() {
                   <Input
                     id="edit-name"
                     value={editFormData.name}
-                    onChange={(e) =>
+                    onChange={e =>
                       setEditFormData({ ...editFormData, name: e.target.value })
                     }
                     className="pl-10"
@@ -698,16 +766,22 @@ export default function BrandsPage() {
                     <Building2 className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-l-text-3 dark:text-d-text-3 z-10 pointer-events-none" />
                     <Select
                       value={String(editFormData.company)}
-                      onValueChange={(value) =>
-                        setEditFormData({ ...editFormData, company: Number(value) })
+                      onValueChange={value =>
+                        setEditFormData({
+                          ...editFormData,
+                          company: Number(value),
+                        })
                       }
                     >
                       <SelectTrigger id="edit-company" className="pl-10">
                         <SelectValue placeholder="Select a company" />
                       </SelectTrigger>
                       <SelectContent>
-                        {companies.map((company) => (
-                          <SelectItem key={company.id} value={String(company.id)}>
+                        {companies.map(company => (
+                          <SelectItem
+                            key={company.id}
+                            value={String(company.id)}
+                          >
                             {company.name}
                           </SelectItem>
                         ))}
@@ -794,7 +868,7 @@ export default function BrandsPage() {
                 <Input
                   id="new-name"
                   value={newBrandName}
-                  onChange={(e) => setNewBrandName(e.target.value)}
+                  onChange={e => setNewBrandName(e.target.value)}
                   className="pl-10"
                   placeholder="Enter brand name"
                 />
@@ -814,7 +888,7 @@ export default function BrandsPage() {
                       <SelectValue placeholder="Select a company" />
                     </SelectTrigger>
                     <SelectContent>
-                      {companies.map((company) => (
+                      {companies.map(company => (
                         <SelectItem key={company.id} value={String(company.id)}>
                           {company.name}
                         </SelectItem>
@@ -895,8 +969,10 @@ export default function BrandsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Brand</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete <strong>{brandToDelete?.name}</strong>?
-              This action cannot be undone and will permanently remove the brand and all associated data.
+              Are you sure you want to delete{' '}
+              <strong>{brandToDelete?.name}</strong>? This action cannot be
+              undone and will permanently remove the brand and all associated
+              data.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -918,9 +994,7 @@ export default function BrandsPage() {
             <AlertDialogTitle className="text-green-600 dark:text-green-500">
               ✓ Success!
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              {successMessage}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{successMessage}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogAction onClick={() => setSuccessDialog(false)}>

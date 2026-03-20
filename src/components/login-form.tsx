@@ -16,7 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { useState, FormEvent } from 'react';
 import { useAuthStore } from '@/store/authStore';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 
 export function LoginForm({
   className,
@@ -34,7 +34,7 @@ export function LoginForm({
     try {
       await login({ matricule, password });
       // Redirect to dashboard on successful login
-      navigate('/dashboard');
+      void navigate('/dashboard');
     } catch (err) {
       // Error is already set in the store
       console.error('Login failed:', err);
@@ -69,7 +69,7 @@ export function LoginForm({
                   placeholder="Enter your matricule"
                   required
                   value={matricule}
-                  onChange={(e) => setMatricule(e.target.value)}
+                  onChange={e => setMatricule(e.target.value)}
                   disabled={isLoading}
                 />
               </Field>
@@ -77,20 +77,19 @@ export function LoginForm({
               <Field>
                 <div className="flex items-center">
                   <FieldLabel htmlFor="password">Password</FieldLabel>
-                  <button
-                    type="button"
-                    onClick={() => console.log('Forgot password clicked')}
-                    className="ml-auto inline-block text-sm underline-offset-4 hover:underline bg-transparent border-0 cursor-pointer"
+                  <Link
+                    to="/forgot-password"
+                    className="ml-auto inline-block text-sm underline-offset-4 hover:underline"
                   >
                     Forgot your password?
-                  </button>
+                  </Link>
                 </div>
                 <Input
                   id="password"
                   type="password"
                   required
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={e => setPassword(e.target.value)}
                   disabled={isLoading}
                 />
               </Field>

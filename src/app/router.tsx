@@ -3,14 +3,27 @@ import Layout from '@/components/layout/Layout';
 import HomePage from '@/pages/HomePage';
 import DashbordLayout from '@/components/dashboardLayout/pageDashbord';
 import LoginPage from '@/pages/login';
+import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
+import ResetPasswordPage from '@/pages/ResetPasswordPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import StatisticsPage from '@/pages/StatisticsPage';
-import AddUserPage from '@/pages/AddUserPage';
-import UsersPage from '@/pages/UsersPage';
+import AddUserPageNew from '@/pages/AddUserPageNew';
+import UsersPageNew from '@/pages/UsersPageNew';
+import UserDetailsPage from '@/pages/UserDetailsPage';
+import EditUserPage from '@/pages/EditUserPage';
+import RolesPage from '@/pages/RolesPage';
+import ProfilePage from '@/pages/ProfilePage';
 import CompaniesPage from '@/pages/CompaniesPage';
 import AddCompanyPage from '@/pages/AddCompanyPage';
 import BrandsPage from '@/pages/BrandsPage';
 import SalesChannelsPage from '@/pages/SalesChannelsPage';
+import ProductsPage from '@/pages/ProductsPage';
+import InventoryPage from '@/pages/InventoryPage';
+import CategoriesPage from '@/pages/CategoriesPage';
+import PromotionsPage from '@/pages/PromotionsPage';
+import OrdersPage from '@/pages/OrdersPage';
+import ClientsPage from '@/pages/ClientsPage';
+import POSPage from '@/pages/POSPage';
 import NotificationsPage from '@/pages/NotificationsPage';
 import SettingsPage from '@/pages/SettingsPage';
 import ProtectedRoute from '@/components/ProtectedRoute';
@@ -28,8 +41,24 @@ export function AppRouter() {
         <Route element={<ProtectedRoute />}>
           <Route path="/dashboard" element={<DashbordLayout />}>
             <Route index element={<StatisticsPage />} />
-            <Route path="add-user" element={<AddUserPage />} />
-            <Route path="users" element={<UsersPage />} />
+            {/* User Management Routes */}
+            <Route path="users" element={<UsersPageNew />} />
+            <Route path="users/add" element={<AddUserPageNew />} />
+            <Route path="users/:id" element={<UserDetailsPage />} />
+            <Route path="users/:id/edit" element={<EditUserPage />} />
+            {/* Legacy route redirect */}
+            <Route path="add-user" element={<AddUserPageNew />} />
+            {/* Role Management */}
+            <Route
+              path="roles"
+              element={
+                <RoleGuard requiredRole="SuperAdmin">
+                  <RolesPage />
+                </RoleGuard>
+              }
+            />
+            {/* Profile */}
+            <Route path="profile" element={<ProfilePage />} />
             {/* SuperAdmin only routes */}
             <Route
               path="companies"
@@ -63,6 +92,46 @@ export function AppRouter() {
                 </RoleGuard>
               }
             />
+            {/* Product & Category Management */}
+            <Route
+              path="products"
+              element={
+                <RoleGuard requiredRole="SuperAdmin">
+                  <ProductsPage />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="inventory"
+              element={
+                <RoleGuard requiredRole="SuperAdmin">
+                  <InventoryPage />
+                </RoleGuard>
+              }
+            />
+            <Route
+              path="categories"
+              element={
+                <RoleGuard requiredRole="SuperAdmin">
+                  <CategoriesPage />
+                </RoleGuard>
+              }
+            />
+            {/* Promotions Management */}
+            <Route
+              path="promotions"
+              element={
+                <RoleGuard
+                  requiredRoles={['Admin', 'Manager', 'CEO', 'SuperAdmin']}
+                >
+                  <PromotionsPage />
+                </RoleGuard>
+              }
+            />
+            {/* Orders & Clients */}
+            <Route path="orders" element={<OrdersPage />} />
+            <Route path="clients" element={<ClientsPage />} />
+            <Route path="pos" element={<POSPage />} />
             <Route path="notifications" element={<NotificationsPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
@@ -70,6 +139,8 @@ export function AppRouter() {
 
         {/* Public Routes */}
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
 
         {/* 404 Page - catches all unmatched routes */}
         <Route path="*" element={<NotFoundPage />} />

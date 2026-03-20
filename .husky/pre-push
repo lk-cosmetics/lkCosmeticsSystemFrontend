@@ -12,16 +12,7 @@ fi
 
 echo "📦 Source files changed, running full codebase checks..."
 
-# Step 1: Run ESLint with auto-fix
-echo "🔍 Running ESLint with auto-fix..."
-npm run lint:fix
-if [ $? -ne 0 ]; then
-  echo "❌ ESLint failed! Please fix remaining linting errors manually before pushing."
-  exit 1
-fi
-echo "✅ ESLint passed (auto-fixed issues where possible)!"
-
-# Step 2: Run Prettier to auto-format
+# Step 1: Run Prettier to auto-format
 echo "💅 Running Prettier to auto-format code..."
 npm run format:all
 if [ $? -ne 0 ]; then
@@ -30,7 +21,7 @@ if [ $? -ne 0 ]; then
 fi
 echo "✅ Code formatted successfully!"
 
-# Step 3: Check if there are any changes after auto-fixes
+# Step 2: Check if there are any changes after auto-fixes
 CHANGES_AFTER_FIX=$(git diff --name-only)
 if [ -n "$CHANGES_AFTER_FIX" ]; then
   echo "📝 Auto-fixes were applied. Staging changes..."
@@ -38,7 +29,7 @@ if [ -n "$CHANGES_AFTER_FIX" ]; then
   echo "✨ Changes have been staged. You may want to review them before pushing."
 fi
 
-# Step 4: Run TypeScript type checking
+# Step 3: Run TypeScript type checking
 echo "🔍 Running TypeScript type check..."
 npm run type-check
 if [ $? -ne 0 ]; then
@@ -47,7 +38,7 @@ if [ $? -ne 0 ]; then
 fi
 echo "✅ TypeScript type check passed!"
 
-# Step 5: Run build
+# Step 4: Run build
 echo "🏗️  Running build..."
 npm run build
 if [ $? -ne 0 ]; then

@@ -7,6 +7,9 @@ export * from './useUserActions';
 export * from './useAuth';
 export * from './usePreferences';
 
+// React Query hooks
+export * from './queries';
+
 // Add more hooks exports here as you create them
 // Example:
 // export * from './useMediaQuery';

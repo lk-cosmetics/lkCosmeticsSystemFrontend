@@ -1,10 +1,7 @@
-import * as React from "react"
+import * as React from 'react';
 import {
-  IconCamera,
   IconChartBar,
   IconDashboard,
-  IconFileAi,
-  IconFileDescription,
   IconFolder,
   IconHelp,
   IconListDetails,
@@ -14,159 +11,173 @@ import {
   IconBuilding,
   IconTag,
   IconShoppingCart,
-} from "@tabler/icons-react"
-import { NavMain } from "@/components/nav-main"
-import { NavSecondary } from "@/components/nav-secondary"
-import { NavUser } from "@/components/nav-user"
+  IconShield,
+  IconUserCircle,
+  IconPackage,
+  IconCategory,
+  IconDiscount,
+  IconBoxSeam,
+  IconReceipt,
+  IconUsersGroup,
+  IconCash,
+} from '@tabler/icons-react';
+import { NavMain } from '@/components/nav-main';
+import { NavSecondary } from '@/components/nav-secondary';
+import { NavUser } from '@/components/nav-user';
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-} from "@/components/ui/sidebar"
+} from '@/components/ui/sidebar';
+import { useAuthStore } from '@/store/authStore';
 
-const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
+// Static navigation data (doesn't depend on user state)
+const navMain = [
+  {
+    title: 'Dashboard',
+    url: '/dashboard',
+    icon: IconDashboard,
   },
-  navMain: [
-    {
-      title: "Dashboard",
-      url: "/dashboard",
-      icon: IconDashboard,
-    },
-    {
-      title: "Lifecycle",
-      url: "#",
-      icon: IconListDetails,
-    },
-    {
-      title: "Analytics",
-      url: "#",
-      icon: IconChartBar,
-    },
-    {
-      title: "Projects",
-      url: "#",
-      icon: IconFolder,
-    },
-    {
-      title: "Team",
-      url: "#",
-      icon: IconUsers,
-    },
-    {
-      title: "Users",
-      url: "/dashboard/users",
-      icon: IconUsers,
-    },
-    {
-      title: "Add User",
-      url: "/dashboard/add-user",
-      icon: IconUsers,
-    },
-    {
-      title: "Companies",
-      url: "/dashboard/companies",
-      icon: IconBuilding,
-      requiredRole: "SuperAdmin",
-    },
-    {
-      title: "Brands",
-      url: "/dashboard/brands",
-      icon: IconTag,
-      requiredRole: "SuperAdmin",
-    },
-    {
-      title: "Sales Channels",
-      url: "/dashboard/sales-channels",
-      icon: IconShoppingCart,
-      requiredRole: "SuperAdmin",
-    },
-  ],
-  navClouds: [
-    {
-      title: "Capture",
-      icon: IconCamera,
-      isActive: true,
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Proposal",
-      icon: IconFileDescription,
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-    {
-      title: "Prompts",
-      icon: IconFileAi,
-      url: "#",
-      items: [
-        {
-          title: "Active Proposals",
-          url: "#",
-        },
-        {
-          title: "Archived",
-          url: "#",
-        },
-      ],
-    },
-  ],
-  navSecondary: [
-    {
-      title: "Settings",
-      url: "/dashboard/settings",
-      icon: IconSettings,
-    },
-    {
-      title: "Get Help",
-      url: "#",
-      icon: IconHelp,
-    },
-    {
-      title: "Search",
-      url: "#",
-      icon: IconSearch,
-    },
-  ],
- 
-}
+  {
+    title: 'Lifecycle',
+    url: '#',
+    icon: IconListDetails,
+  },
+  {
+    title: 'Analytics',
+    url: '#',
+    icon: IconChartBar,
+  },
+  {
+    title: 'Projects',
+    url: '#',
+    icon: IconFolder,
+  },
+  {
+    title: 'Team',
+    url: '#',
+    icon: IconUsers,
+  },
+  {
+    title: 'Users',
+    url: '/dashboard/users',
+    icon: IconUsers,
+  },
+  {
+    title: 'Roles',
+    url: '/dashboard/roles',
+    icon: IconShield,
+    requiredRole: 'SuperAdmin',
+  },
+  {
+    title: 'My Profile',
+    url: '/dashboard/profile',
+    icon: IconUserCircle,
+  },
+  {
+    title: 'Companies',
+    url: '/dashboard/companies',
+    icon: IconBuilding,
+    requiredRole: 'SuperAdmin',
+  },
+  {
+    title: 'Brands',
+    url: '/dashboard/brands',
+    icon: IconTag,
+    requiredRole: 'SuperAdmin',
+  },
+  {
+    title: 'Sales Channels',
+    url: '/dashboard/sales-channels',
+    icon: IconShoppingCart,
+    requiredRole: 'SuperAdmin',
+  },
+  {
+    title: 'Products',
+    url: '/dashboard/products',
+    icon: IconPackage,
+    requiredRole: 'SuperAdmin',
+  },
+  {
+    title: 'Inventory',
+    url: '/dashboard/inventory',
+    icon: IconBoxSeam,
+    requiredRole: 'SuperAdmin',
+  },
+  {
+    title: 'Categories',
+    url: '/dashboard/categories',
+    icon: IconCategory,
+    requiredRole: 'SuperAdmin',
+  },
+  {
+    title: 'Promotions',
+    url: '/dashboard/promotions',
+    icon: IconDiscount,
+    requiredRole: 'SuperAdmin',
+  },
+  {
+    title: 'Orders',
+    url: '/dashboard/orders',
+    icon: IconReceipt,
+  },
+  {
+    title: 'Clients',
+    url: '/dashboard/clients',
+    icon: IconUsersGroup,
+  },
+  {
+    title: 'POS',
+    url: '/dashboard/pos',
+    icon: IconCash,
+  },
+];
+
+const navSecondary = [
+  {
+    title: 'Settings',
+    url: '/dashboard/settings',
+    icon: IconSettings,
+  },
+  {
+    title: 'Get Help',
+    url: '#',
+    icon: IconHelp,
+  },
+  {
+    title: 'Search',
+    url: '#',
+    icon: IconSearch,
+  },
+];
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  // Hook must be called inside the component
+  const { user: currentUser } = useAuthStore();
+
+  // Memoize user data to prevent unnecessary re-renders
+  const userData = React.useMemo(
+    () => ({
+      name: currentUser?.full_name || 'User',
+      email: currentUser?.email || 'No Email',
+      avatar: '/avatars/shadcn.jpg',
+    }),
+    [currentUser?.full_name, currentUser?.email]
+  );
+
   return (
     <Sidebar collapsible="offcanvas" {...props}>
       <SidebarHeader className="flex justify-center items-center">
         <img src="/logo.svg" alt="Logo" className="size-30" />
       </SidebarHeader>
       <SidebarContent>
-        <NavMain items={data.navMain} />
-        <NavSecondary items={data.navSecondary} className="mt-auto" />
+        <NavMain items={navMain} />
+        <NavSecondary items={navSecondary} className="mt-auto" />
       </SidebarContent>
       <SidebarFooter>
-        <NavUser user={data.user} />
+        <NavUser user={userData} />
       </SidebarFooter>
     </Sidebar>
-  )
+  );
 }

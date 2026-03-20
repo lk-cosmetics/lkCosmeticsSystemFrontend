@@ -52,7 +52,7 @@ export function UserProfile() {
         <div>
           <p className="text-sm text-gray-500 mb-2">Roles</p>
           <div className="flex flex-wrap gap-2">
-            {user.roles.map((role) => (
+            {user.roles.map(role => (
               <Badge key={role} variant="secondary">
                 {role}
               </Badge>
@@ -64,13 +64,15 @@ export function UserProfile() {
         <div>
           <p className="text-sm text-gray-500 mb-2">Permissions</p>
           <div className="flex flex-wrap gap-2">
-            {user.permissions.slice(0, 5).map((permission) => (
+            {user.permissions?.slice(0, 5).map(permission => (
               <Badge key={permission} variant="outline">
                 {permission}
               </Badge>
             ))}
-            {user.permissions.length > 5 && (
-              <Badge variant="outline">+{user.permissions.length - 5} more</Badge>
+            {(user.permissions?.length ?? 0) > 5 && (
+              <Badge variant="outline">
+                +{(user.permissions?.length ?? 0) - 5} more
+              </Badge>
             )}
           </div>
         </div>

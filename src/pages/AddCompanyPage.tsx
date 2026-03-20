@@ -3,7 +3,16 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Building2, Mail, Phone, MapPin, FileText, Camera, Ban, Briefcase } from 'lucide-react';
+import {
+  Building2,
+  Mail,
+  Phone,
+  MapPin,
+  FileText,
+  Camera,
+  Ban,
+  Briefcase,
+} from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,11 +71,14 @@ const TUNISIA_CITIES = [
 // Zod validation schema
 const companySchema = z.object({
   name: z.string().min(2, 'Company name must be at least 2 characters'),
-  legal_name: z.string().min(2, 'Legal name must be at least 2 characters'),
-  abbreviation: z.string().min(2, 'Abbreviation must be at least 2 characters'),
-  email: z.string().email({ message: 'Invalid email address' }),
-  phone: z.string().min(8, 'Phone number must be at least 8 characters'),
-  city: z.enum(TUNISIA_CITIES, { required_error: 'Please select a city' }),
+  legal_name: z.string(),
+  abbreviation: z.string(),
+  email: z.union([
+    z.literal(''),
+    z.string().email({ message: 'Invalid email address' }),
+  ]),
+  phone: z.string(),
+  city: z.enum(TUNISIA_CITIES, { message: 'Please select a city' }),
   address: z.string().optional(),
   matricule_fiscale: z.string().optional(),
   registre_commerce: z.string().optional(),
@@ -101,6 +113,13 @@ export default function AddCompanyPage() {
     watch,
   } = useForm<CompanyFormData>({
     resolver: zodResolver(companySchema),
+    defaultValues: {
+      city: 'Tunis',
+      legal_name: '',
+      abbreviation: '',
+      email: '',
+      phone: '',
+    },
   });
 
   const selectedCity = watch('city');
@@ -110,10 +129,18 @@ export default function AddCompanyPage() {
     if (file) {
       setLogoFile(file);
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = e => {
         setLogoPreview(e.target?.result as string);
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveLogo = () => {
+    setLogoFile(null);
+    setLogoPreview('');
+    if (logoInputRef.current) {
+      logoInputRef.current.value = '';
     }
   };
 
@@ -143,23 +170,25 @@ export default function AddCompanyPage() {
     } catch (error) {
       console.error('Error adding company:', error);
       setShowConfirmDialog(false);
-      
+
       // Extract detailed error message
       let errorMsg = 'Failed to create company. Please try again.';
-      
+
       if (error && typeof error === 'object') {
-        const err = error as any;
-        
+        const err = error as { response?: { data?: unknown } };
+
         // Check for Axios error response
         if (err.response?.data) {
           const data = err.response.data;
-          
+
           // Handle field-specific errors
           if (typeof data === 'object' && !Array.isArray(data)) {
             const fieldErrors: string[] = [];
-            
+
             Object.entries(data).forEach(([field, messages]) => {
-              const fieldName = field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+              const fieldName = field
+                .replace(/_/g, ' ')
+                .replace(/\b\w/g, l => l.toUpperCase());
               if (Array.isArray(messages)) {
                 messages.forEach(msg => {
                   fieldErrors.push(`${fieldName}: ${msg}`);
@@ -168,7 +197,7 @@ export default function AddCompanyPage() {
                 fieldErrors.push(`${fieldName}: ${messages}`);
               }
             });
-            
+
             if (fieldErrors.length > 0) {
               errorMsg = 'Validation errors:\n\n' + fieldErrors.join('\n');
             }
@@ -187,7 +216,8 @@ export default function AddCompanyPage() {
         // Handle network errors
         else if (err.message) {
           if (err.message.includes('Network Error')) {
-            errorMsg = 'Network error. Please check your connection and ensure the backend is running.';
+            errorMsg =
+              'Network error. Please check your connection and ensure the backend is running.';
           } else if (err.message.includes('timeout')) {
             errorMsg = 'Request timeout. Please try again.';
           } else {
@@ -195,7 +225,7 @@ export default function AddCompanyPage() {
           }
         }
       }
-      
+
       setErrorMessage(errorMsg);
       setShowErrorDialog(true);
     }
@@ -226,20 +256,20 @@ export default function AddCompanyPage() {
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 lg:p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Add New Company</h1>
           <p className="text-l-text-2 dark:text-d-text-2 mt-2">
-            Create a new company profile
+            Create a new company profile. Only company name is required.
           </p>
         </div>
       </div>
 
-      <Card className="max-w-3xl mx-auto w-full p-6">
+      <Card className="max-w-3xl mx-auto w-full p-4 sm:p-6">
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
           {/* Logo Section */}
           <div className="flex flex-col items-center gap-4 pb-6 border-b">
-            <Avatar className="size-24">
+            <Avatar className="size-20 sm:size-24">
               <AvatarImage src={logoPreview} alt="Company logo" />
               <AvatarFallback>
                 <Building2 className="size-12" />
@@ -252,15 +282,26 @@ export default function AddCompanyPage() {
               onChange={handleLogoUpload}
               className="hidden"
             />
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => logoInputRef.current?.click()}
-              className="gap-2"
-            >
-              <Camera className="size-4" />
-              Upload Logo
-            </Button>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => logoInputRef.current?.click()}
+                className="gap-2"
+              >
+                <Camera className="size-4" />
+                {logoFile ? 'Change Logo' : 'Upload Logo'}
+              </Button>
+              {logoFile && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={handleRemoveLogo}
+                >
+                  Remove
+                </Button>
+              )}
+            </div>
             <p className="text-xs text-l-text-3 dark:text-d-text-3">
               Optional company logo
             </p>
@@ -288,7 +329,7 @@ export default function AddCompanyPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="legal_name">Legal Name *</Label>
+                <Label htmlFor="legal_name">Legal Name</Label>
                 <Input
                   id="legal_name"
                   {...register('legal_name')}
@@ -296,21 +337,23 @@ export default function AddCompanyPage() {
                   className={errors.legal_name ? 'border-red-500' : ''}
                 />
                 {errors.legal_name && (
-                  <p className="text-sm text-red-500">{errors.legal_name.message}</p>
+                  <p className="text-sm text-red-500">
+                    {errors.legal_name.message}
+                  </p>
                 )}
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="abbreviation">Abbreviation *</Label>
+                <Label htmlFor="abbreviation">Abbreviation</Label>
                 <Input
                   id="abbreviation"
                   {...register('abbreviation')}
                   placeholder="COMP"
                   className={errors.abbreviation ? 'border-red-500' : ''}
                 />
-                {errors.abbreviation && (
-                  <p className="text-sm text-red-500">{errors.abbreviation.message}</p>
-                )}
+                <p className="text-xs text-l-text-3 dark:text-d-text-3">
+                  Leave empty to auto-generate
+                </p>
               </div>
             </div>
           </div>
@@ -324,7 +367,7 @@ export default function AddCompanyPage() {
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="email">Email *</Label>
+                <Label htmlFor="email">Email</Label>
                 <div className="relative">
                   <Mail className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-l-text-3 dark:text-d-text-3" />
                   <Input
@@ -341,7 +384,7 @@ export default function AddCompanyPage() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="phone">Phone *</Label>
+                <Label htmlFor="phone">Phone</Label>
                 <div className="relative">
                   <Phone className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-l-text-3 dark:text-d-text-3" />
                   <Input
@@ -351,9 +394,9 @@ export default function AddCompanyPage() {
                     className={`pl-10 ${errors.phone ? 'border-red-500' : ''}`}
                   />
                 </div>
-                {errors.phone && (
-                  <p className="text-sm text-red-500">{errors.phone.message}</p>
-                )}
+                <p className="text-xs text-l-text-3 dark:text-d-text-3">
+                  Optional, add contact number if available
+                </p>
               </div>
 
               <div className="space-y-2">
@@ -362,16 +405,18 @@ export default function AddCompanyPage() {
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-l-text-3 dark:text-d-text-3 z-10 pointer-events-none" />
                   <Select
                     value={selectedCity}
-                    onValueChange={(value) => setValue('city', value as typeof TUNISIA_CITIES[number])}
+                    onValueChange={value =>
+                      setValue('city', value as (typeof TUNISIA_CITIES)[number])
+                    }
                   >
-                    <SelectTrigger 
+                    <SelectTrigger
                       id="city"
                       className={`pl-10 ${errors.city ? 'border-red-500' : ''}`}
                     >
                       <SelectValue placeholder="Select a city" />
                     </SelectTrigger>
                     <SelectContent>
-                      {TUNISIA_CITIES.map((city) => (
+                      {TUNISIA_CITIES.map(city => (
                         <SelectItem key={city} value={city}>
                           {city}
                         </SelectItem>
@@ -456,12 +501,8 @@ export default function AddCompanyPage() {
           </div>
 
           {/* Submit Button */}
-          <div className="flex gap-4 pt-6 border-t">
-            <Button
-              type="submit"
-              disabled={isSubmitting}
-              className="flex-1"
-            >
+          <div className="flex flex-col-reverse sm:flex-row gap-3 pt-6 border-t">
+            <Button type="submit" disabled={isSubmitting} className="flex-1">
               {isSubmitting ? 'Creating...' : 'Create Company'}
             </Button>
             <Button
@@ -488,7 +529,9 @@ export default function AddCompanyPage() {
                   <div className="flex items-center gap-2">
                     <Building2 className="size-4" />
                     <span className="font-medium">{pendingData.name}</span>
-                    <Badge variant="secondary">{pendingData.abbreviation}</Badge>
+                    <Badge variant="secondary">
+                      {pendingData.abbreviation}
+                    </Badge>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-l-text-2 dark:text-d-text-2">
                     <Mail className="size-3" />
@@ -519,7 +562,8 @@ export default function AddCompanyPage() {
               ✓ Company Created Successfully!
             </AlertDialogTitle>
             <AlertDialogDescription>
-              The company has been created and is now active. You can view and manage it in the companies list.
+              The company has been created and is now active. You can view and
+              manage it in the companies list.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

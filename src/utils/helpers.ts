@@ -2,6 +2,37 @@
  * Common utility functions
  */
 
+import { API_CONFIG } from './constants';
+
+/**
+ * Gets the full URL for a media file from the backend
+ * If the URL is already absolute (starts with http), returns it as-is
+ * If the URL is relative, prepends the API base URL
+ */
+export function getMediaUrl(
+  url: string | null | undefined
+): string | undefined {
+  if (!url) return undefined;
+
+  // If already an absolute URL, return as-is
+  if (
+    url.startsWith('http://') ||
+    url.startsWith('https://') ||
+    url.startsWith('data:')
+  ) {
+    return url;
+  }
+
+  // If relative URL, prepend API base URL
+  const baseUrl = API_CONFIG.BASE_URL.endsWith('/')
+    ? API_CONFIG.BASE_URL.slice(0, -1)
+    : API_CONFIG.BASE_URL;
+
+  const mediaPath = url.startsWith('/') ? url : `/${url}`;
+
+  return `${baseUrl}${mediaPath}`;
+}
+
 /**
  * Combines class names
  */

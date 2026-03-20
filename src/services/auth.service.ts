@@ -3,12 +3,24 @@
  * Uses memory for access tokens and HttpOnly cookies (backend-managed) for refresh tokens
  */
 
-import { apiClient, setAuthTokenGetter } from './axios';
-import type { LoginRequest, LoginResponse, TokenRefreshResponse, User } from '@/types';
+import { apiClient, setAuthTokenGetter, setRefreshTokenGetter } from './axios';
+import type {
+  LoginRequest,
+  LoginResponse,
+  TokenRefreshResponse,
+  User,
+  ForgotPasswordRequest,
+  ForgotPasswordResponse,
+  ValidateResetTokenRequest,
+  ValidateResetTokenResponse,
+  ResetPasswordRequest,
+  ResetPasswordResponse,
+} from '@/types';
 import { AUTH_CONFIG } from '@/utils/constants';
 
-// In-memory storage for access token (most secure - cleared on page close)
+// In-memory storage for tokens (most secure - cleared on page close)
 let accessTokenMemory: string | null = null;
+let refreshTokenMemory: string | null = null;
 
 class AuthService {
   /**
@@ -17,7 +29,7 @@ class AuthService {
   async login(credentials: LoginRequest): Promise<LoginResponse> {
     try {
       console.log('🔐 Attempting login to:', AUTH_CONFIG.LOGIN_ENDPOINT);
-      
+
       const response = await apiClient.post<LoginResponse>(
         AUTH_CONFIG.LOGIN_ENDPOINT,
         credentials,
@@ -31,10 +43,18 @@ class AuthService {
       // Store access token in memory (most secure)
       if (response.data.access) {
         accessTokenMemory = response.data.access;
+        console.log('🔑 Access token stored in memory');
       }
 
-      // Backend should set refresh_token as HttpOnly cookie automatically
-      // We don't handle it here - it's invisible to JavaScript
+      // Store refresh token in memory and localStorage (persists across page refreshes)
+      if (response.data.refresh) {
+        refreshTokenMemory = response.data.refresh;
+        localStorage.setItem(
+          AUTH_CONFIG.STORAGE_KEY.REFRESH_TOKEN,
+          response.data.refresh
+        );
+        console.log('🔄 Refresh token stored in memory and localStorage');
+      }
 
       // Store user display data in localStorage (non-sensitive)
       if (response.data.user) {
@@ -42,7 +62,7 @@ class AuthService {
         const user = response.data.user;
         const [firstName, ...lastNameParts] = (user.full_name || '').split(' ');
         const lastName = lastNameParts.join(' ');
-        
+
         // Transform role string to roles array for frontend compatibility
         const transformedUser = {
           ...user,
@@ -50,10 +70,10 @@ class AuthService {
           firstName: firstName || '',
           lastName: lastName || '',
         };
-        
+
         // Update the response with transformed user
         response.data.user = transformedUser;
-        
+
         const userDisplay = {
           id: user.id,
           matricule: user.matricule,
@@ -72,27 +92,29 @@ class AuthService {
       return response.data;
     } catch (error) {
       console.error('❌ Login error:', error);
-      
+
       if (error && typeof error === 'object' && 'response' in error) {
-        const axiosError = error as { 
-          response?: { 
+        const axiosError = error as {
+          response?: {
             data?: { detail?: string; message?: string };
             status?: number;
           };
           message?: string;
         };
-        
+
         if (!axiosError.response) {
-          throw new Error('Cannot connect to server. Please check if the backend is running on http://localhost:8000');
+          throw new Error(
+            'Cannot connect to server. Please check if the backend is running on http://localhost:8000'
+          );
         }
-        
+
         throw new Error(
           axiosError.response?.data?.detail ||
-          axiosError.response?.data?.message ||
-          'Login failed. Please check your credentials.'
+            axiosError.response?.data?.message ||
+            'Login failed. Please check your credentials.'
         );
       }
-      
+
       const err = error as Error;
       throw new Error(err.message || 'Network error. Please try again.');
     }
@@ -102,16 +124,174 @@ class AuthService {
    * Logout user and clear stored data
    */
   logout(): void {
-    // Clear in-memory token
+    // Clear in-memory tokens
     accessTokenMemory = null;
-    
-    // Clear localStorage (non-sensitive data)
+    refreshTokenMemory = null;
+
+    // Clear localStorage
     localStorage.removeItem(AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY);
-    
+    localStorage.removeItem(AUTH_CONFIG.STORAGE_KEY.REFRESH_TOKEN);
+
     // HttpOnly cookie (refresh_token) will be cleared by backend
     // Call backend logout endpoint to clear the cookie
-    apiClient.post('/api/v1/auth/logout/', {}, { withCredentials: true })
-      .catch(err => console.error('Logout error:', err));
+    apiClient
+      .post('/api/v1/auth/logout/', {}, { withCredentials: true })
+      .catch((err: unknown) => console.error('Logout error:', err));
+  }
+
+  /**
+   * Request password reset email
+   */
+  async forgotPassword(
+    data: ForgotPasswordRequest
+  ): Promise<ForgotPasswordResponse> {
+    try {
+      console.log('📧 Requesting password reset for:', data.email);
+
+      const response = await apiClient.post<ForgotPasswordResponse>(
+        AUTH_CONFIG.FORGOT_PASSWORD_ENDPOINT,
+        data
+      );
+
+      console.log('✅ Password reset email sent');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Forgot password error:', error);
+
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as {
+          response?: {
+            data?: { detail?: string; message?: string };
+            status?: number;
+          };
+        };
+
+        throw new Error(
+          axiosError.response?.data?.detail ||
+            axiosError.response?.data?.message ||
+            'Failed to send reset email. Please try again.'
+        );
+      }
+
+      throw new Error('Network error. Please try again.');
+    }
+  }
+
+  /**
+   * Validate password reset token
+   */
+  async validateResetToken(
+    data: ValidateResetTokenRequest
+  ): Promise<ValidateResetTokenResponse> {
+    try {
+      console.log('🔍 Validating reset token');
+
+      const response = await apiClient.post<ValidateResetTokenResponse>(
+        AUTH_CONFIG.VALIDATE_RESET_TOKEN_ENDPOINT,
+        data
+      );
+
+      console.log('✅ Token validation result:', response.data.valid);
+      return response.data;
+    } catch (error) {
+      console.error('❌ Token validation error:', error);
+
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as {
+          response?: {
+            data?: { detail?: string; message?: string; valid?: boolean };
+            status?: number;
+          };
+        };
+
+        // Return invalid token response instead of throwing
+        return {
+          valid: false,
+          message:
+            axiosError.response?.data?.detail ||
+            axiosError.response?.data?.message ||
+            'Invalid or expired reset token.',
+        };
+      }
+
+      return {
+        valid: false,
+        message: 'Network error. Please try again.',
+      };
+    }
+  }
+
+  /**
+   * Reset password with token
+   */
+  async resetPassword(
+    data: ResetPasswordRequest
+  ): Promise<ResetPasswordResponse> {
+    try {
+      console.log('🔐 Resetting password');
+
+      const response = await apiClient.post<ResetPasswordResponse>(
+        AUTH_CONFIG.RESET_PASSWORD_ENDPOINT,
+        data
+      );
+
+      console.log('✅ Password reset successful');
+      return response.data;
+    } catch (error) {
+      console.error('❌ Reset password error:', error);
+
+      if (error && typeof error === 'object' && 'response' in error) {
+        const axiosError = error as {
+          response?: {
+            data?: {
+              detail?: string;
+              message?: string;
+              error?: string;
+              new_password?: string[];
+              password?: string[];
+            };
+            status?: number;
+          };
+        };
+
+        // Log the full error response for debugging
+        console.error('Backend error response:', axiosError.response?.data);
+
+        // Handle different error formats from backend
+        const errorData = axiosError.response?.data;
+        let errorMessage = 'Failed to reset password. Please try again.';
+
+        if (errorData) {
+          if (errorData.detail) {
+            errorMessage = errorData.detail;
+          } else if (errorData.message) {
+            errorMessage = errorData.message;
+          } else if (errorData.error) {
+            errorMessage = errorData.error;
+          } else if (
+            errorData.new_password &&
+            Array.isArray(errorData.new_password)
+          ) {
+            errorMessage = errorData.new_password.join(' ');
+          } else if (errorData.password && Array.isArray(errorData.password)) {
+            errorMessage = errorData.password.join(' ');
+          } else if (typeof errorData === 'object') {
+            // Try to extract first error from object
+            const firstKey = Object.keys(errorData)[0];
+            const firstValue = errorData[firstKey as keyof typeof errorData];
+            if (Array.isArray(firstValue)) {
+              errorMessage = `${firstKey}: ${firstValue.join(' ')}`;
+            } else if (typeof firstValue === 'string') {
+              errorMessage = firstValue;
+            }
+          }
+        }
+
+        throw new Error(errorMessage);
+      }
+
+      throw new Error('Network error. Please try again.');
+    }
   }
 
   /**
@@ -119,15 +299,39 @@ class AuthService {
    */
   async refreshToken(): Promise<string> {
     try {
-      // Backend reads refresh_token from HttpOnly cookie automatically
+      // Load refresh token from localStorage if not in memory (e.g. after page refresh)
+      if (!refreshTokenMemory) {
+        refreshTokenMemory = localStorage.getItem(
+          AUTH_CONFIG.STORAGE_KEY.REFRESH_TOKEN
+        );
+      }
+
+      if (!refreshTokenMemory) {
+        throw new Error('No refresh token available');
+      }
+
+      console.log('🔄 Attempting to refresh access token...');
+
+      // Send refresh token in request body
       const response = await apiClient.post<TokenRefreshResponse>(
         AUTH_CONFIG.REFRESH_ENDPOINT,
-        {}, // Empty body - refresh token comes from HttpOnly cookie
-        { withCredentials: true } // Important: sends cookies with request
+        { refresh: refreshTokenMemory }, // Send refresh token in body
+        { withCredentials: true }
       );
+
+      console.log('✅ Token refreshed successfully');
 
       // Store new access token in memory
       accessTokenMemory = response.data.access;
+
+      // If backend returns a rotated refresh token, update both memory and localStorage
+      if (response.data.refresh) {
+        refreshTokenMemory = response.data.refresh;
+        localStorage.setItem(
+          AUTH_CONFIG.STORAGE_KEY.REFRESH_TOKEN,
+          response.data.refresh
+        );
+      }
 
       return response.data.access;
     } catch (error) {
@@ -142,10 +346,15 @@ class AuthService {
    */
   getStoredUser(): User | null {
     try {
-      const userStr = localStorage.getItem(AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY);
+      const userStr = localStorage.getItem(
+        AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY
+      );
       if (!userStr) return null;
-      
-      const userData = JSON.parse(userStr) as { role?: string; permissions?: string[] };
+
+      const userData = JSON.parse(userStr) as {
+        role?: string;
+        permissions?: string[];
+      };
       // Transform role string to roles array for consistency
       return {
         ...userData,
@@ -165,13 +374,22 @@ class AuthService {
   }
 
   /**
+   * Get stored refresh token from memory
+   */
+  getStoredRefreshToken(): string | null {
+    return refreshTokenMemory;
+  }
+
+  /**
    * Check if user is authenticated
    */
   isAuthenticated(): boolean {
     // Check if we have access token in memory OR user display data
     // If user display exists, we can try to refresh the access token
     const hasAccessToken = !!accessTokenMemory;
-    const hasUserData = !!localStorage.getItem(AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY);
+    const hasUserData = !!localStorage.getItem(
+      AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY
+    );
     return hasAccessToken || hasUserData;
   }
 
@@ -181,8 +399,10 @@ class AuthService {
   async initializeAuth(): Promise<void> {
     try {
       // Check if we have user data (means user was logged in)
-      const userData = localStorage.getItem(AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY);
-      
+      const userData = localStorage.getItem(
+        AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY
+      );
+
       if (userData && !accessTokenMemory) {
         // Try to refresh the access token using HttpOnly cookie
         try {
@@ -191,9 +411,12 @@ class AuthService {
         } catch {
           // Refresh failed - clear user data but don't redirect
           // User will be redirected when they try to access a protected route
-          console.warn('⚠️ Token refresh failed during init, user needs to re-login');
+          console.warn(
+            '⚠️ Token refresh failed during init, user needs to re-login'
+          );
           localStorage.removeItem(AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY);
           accessTokenMemory = null;
+          refreshTokenMemory = null;
         }
       }
     } catch (error) {
@@ -201,6 +424,7 @@ class AuthService {
       // Don't call logout here - just clear the data silently
       localStorage.removeItem(AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY);
       accessTokenMemory = null;
+      refreshTokenMemory = null;
     }
   }
 }
@@ -208,7 +432,8 @@ class AuthService {
 // Export singleton instance
 export const authService = new AuthService();
 
-// Set up token getter for axios interceptor
+// Set up token getters for axios interceptor
 setAuthTokenGetter(() => authService.getStoredAccessToken());
+setRefreshTokenGetter(() => authService.getStoredRefreshToken());
 
 export default authService;

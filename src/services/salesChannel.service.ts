@@ -5,12 +5,12 @@
 
 import { apiClient } from './axios';
 import { AUTH_CONFIG } from '@/utils/constants';
-import type { 
-  SalesChannel, 
-  CreateSalesChannelRequest, 
+import type {
+  SalesChannel,
+  CreateSalesChannelRequest,
   PaginatedResponse,
   GenerateCredentialsResponse,
-  ChannelType
+  ChannelType,
 } from '@/types';
 
 class SalesChannelService {
@@ -100,7 +100,10 @@ class SalesChannelService {
   /**
    * Update sales channel (full update)
    */
-  async updateChannel(id: number, data: Partial<CreateSalesChannelRequest>): Promise<SalesChannel> {
+  async updateChannel(
+    id: number,
+    data: Partial<CreateSalesChannelRequest>
+  ): Promise<SalesChannel> {
     const response = await apiClient.put<SalesChannel>(
       `${AUTH_CONFIG.SALES_CHANNEL_ENDPOINT}${id}/`,
       data
@@ -111,7 +114,10 @@ class SalesChannelService {
   /**
    * Partial update sales channel
    */
-  async partialUpdateChannel(id: number, data: Partial<CreateSalesChannelRequest & { is_active?: boolean }>): Promise<SalesChannel> {
+  async partialUpdateChannel(
+    id: number,
+    data: Partial<CreateSalesChannelRequest & { is_active?: boolean }>
+  ): Promise<SalesChannel> {
     const response = await apiClient.patch<SalesChannel>(
       `${AUTH_CONFIG.SALES_CHANNEL_ENDPOINT}${id}/`,
       data
