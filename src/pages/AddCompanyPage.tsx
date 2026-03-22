@@ -3,16 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  Building2,
-  Mail,
-  Phone,
-  MapPin,
-  FileText,
-  Camera,
-  Ban,
-  Briefcase,
-} from 'lucide-react';
+import { Building2, Mail, Phone, MapPin, FileText, Camera, Ban, Briefcase } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -38,7 +29,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useAuthStore } from '@/store/authStore';
 import { hasRole } from '@/hooks/useAuth';
-import { companyService } from '@/services/company.service';
+import { useCreateCompany } from '@/hooks/queries';
 
 // Tunisia Governorates (Cities)
 const TUNISIA_CITIES = [
@@ -73,10 +64,7 @@ const companySchema = z.object({
   name: z.string().min(2, 'Company name must be at least 2 characters'),
   legal_name: z.string(),
   abbreviation: z.string(),
-  email: z.union([
-    z.literal(''),
-    z.string().email({ message: 'Invalid email address' }),
-  ]),
+  email: z.union([z.literal(''), z.string().email({ message: 'Invalid email address' })]),
   phone: z.string(),
   city: z.enum(TUNISIA_CITIES, { message: 'Please select a city' }),
   address: z.string().optional(),
@@ -92,6 +80,7 @@ type CompanyFormData = z.infer<typeof companySchema>;
 export default function AddCompanyPage() {
   const { user } = useAuthStore();
   const navigate = useNavigate();
+  const createCompanyMutation = useCreateCompany();
   const [logoFile, setLogoFile] = useState<File | null>(null);
   const [logoPreview, setLogoPreview] = useState<string>('');
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
@@ -129,7 +118,7 @@ export default function AddCompanyPage() {
     if (file) {
       setLogoFile(file);
       const reader = new FileReader();
-      reader.onload = e => {
+      reader.onload = (e) => {
         setLogoPreview(e.target?.result as string);
       };
       reader.readAsDataURL(file);
@@ -159,7 +148,7 @@ export default function AddCompanyPage() {
         is_active: true,
       };
 
-      await companyService.createCompany(companyData);
+      await createCompanyMutation.mutateAsync(companyData);
 
       setShowConfirmDialog(false);
       setShowSuccessDialog(true);
@@ -170,25 +159,23 @@ export default function AddCompanyPage() {
     } catch (error) {
       console.error('Error adding company:', error);
       setShowConfirmDialog(false);
-
+      
       // Extract detailed error message
       let errorMsg = 'Failed to create company. Please try again.';
-
+      
       if (error && typeof error === 'object') {
-        const err = error as { response?: { data?: unknown } };
-
+        const err = error as { response?: { data?: unknown; message?: string }; message?: string };
+        
         // Check for Axios error response
-        if (err.response?.data) {
+        if (err.response?.data !== undefined) {
           const data = err.response.data;
-
+          
           // Handle field-specific errors
-          if (typeof data === 'object' && !Array.isArray(data)) {
+          if (typeof data === 'object' && !Array.isArray(data) && data !== null) {
             const fieldErrors: string[] = [];
-
-            Object.entries(data).forEach(([field, messages]) => {
-              const fieldName = field
-                .replace(/_/g, ' ')
-                .replace(/\b\w/g, l => l.toUpperCase());
+            
+            Object.entries(data as Record<string, unknown>).forEach(([field, messages]) => {
+              const fieldName = field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
               if (Array.isArray(messages)) {
                 messages.forEach(msg => {
                   fieldErrors.push(`${fieldName}: ${msg}`);
@@ -197,7 +184,7 @@ export default function AddCompanyPage() {
                 fieldErrors.push(`${fieldName}: ${messages}`);
               }
             });
-
+            
             if (fieldErrors.length > 0) {
               errorMsg = 'Validation errors:\n\n' + fieldErrors.join('\n');
             }
@@ -207,25 +194,29 @@ export default function AddCompanyPage() {
             errorMsg = data;
           }
           // Handle detail or message property
-          else if (data.detail) {
-            errorMsg = data.detail;
-          } else if (data.message) {
-            errorMsg = data.message;
+          else if (typeof data === 'object' && data !== null && 'detail' in data) {
+            const detail = (data as any).detail;
+            if (typeof detail === 'string') errorMsg = detail;
+          } else if (typeof data === 'object' && data !== null && 'message' in data) {
+            const msg = (data as any).message;
+            if (typeof msg === 'string') errorMsg = msg;
           }
         }
         // Handle network errors
-        else if (err.message) {
-          if (err.message.includes('Network Error')) {
-            errorMsg =
-              'Network error. Please check your connection and ensure the backend is running.';
-          } else if (err.message.includes('timeout')) {
-            errorMsg = 'Request timeout. Please try again.';
-          } else {
-            errorMsg = err.message;
+        else if (typeof err === 'object' && err !== null && 'message' in err) {
+          const errMsg = (err as any).message;
+          if (typeof errMsg === 'string') {
+            if (errMsg.includes('Network Error')) {
+              errorMsg = 'Network error. Please check your connection and ensure the backend is running.';
+            } else if (errMsg.includes('timeout')) {
+              errorMsg = 'Request timeout. Please try again.';
+            } else {
+              errorMsg = errMsg;
+            }
           }
         }
       }
-
+      
       setErrorMessage(errorMsg);
       setShowErrorDialog(true);
     }
@@ -293,11 +284,7 @@ export default function AddCompanyPage() {
                 {logoFile ? 'Change Logo' : 'Upload Logo'}
               </Button>
               {logoFile && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={handleRemoveLogo}
-                >
+                <Button type="button" variant="ghost" onClick={handleRemoveLogo}>
                   Remove
                 </Button>
               )}
@@ -337,9 +324,7 @@ export default function AddCompanyPage() {
                   className={errors.legal_name ? 'border-red-500' : ''}
                 />
                 {errors.legal_name && (
-                  <p className="text-sm text-red-500">
-                    {errors.legal_name.message}
-                  </p>
+                  <p className="text-sm text-red-500">{errors.legal_name.message}</p>
                 )}
               </div>
 
@@ -351,9 +336,7 @@ export default function AddCompanyPage() {
                   placeholder="COMP"
                   className={errors.abbreviation ? 'border-red-500' : ''}
                 />
-                <p className="text-xs text-l-text-3 dark:text-d-text-3">
-                  Leave empty to auto-generate
-                </p>
+                <p className="text-xs text-l-text-3 dark:text-d-text-3">Leave empty to auto-generate</p>
               </div>
             </div>
           </div>
@@ -394,9 +377,7 @@ export default function AddCompanyPage() {
                     className={`pl-10 ${errors.phone ? 'border-red-500' : ''}`}
                   />
                 </div>
-                <p className="text-xs text-l-text-3 dark:text-d-text-3">
-                  Optional, add contact number if available
-                </p>
+                <p className="text-xs text-l-text-3 dark:text-d-text-3">Optional, add contact number if available</p>
               </div>
 
               <div className="space-y-2">
@@ -405,18 +386,16 @@ export default function AddCompanyPage() {
                   <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-l-text-3 dark:text-d-text-3 z-10 pointer-events-none" />
                   <Select
                     value={selectedCity}
-                    onValueChange={value =>
-                      setValue('city', value as (typeof TUNISIA_CITIES)[number])
-                    }
+                    onValueChange={(value) => setValue('city', value as typeof TUNISIA_CITIES[number])}
                   >
-                    <SelectTrigger
+                    <SelectTrigger 
                       id="city"
                       className={`pl-10 ${errors.city ? 'border-red-500' : ''}`}
                     >
                       <SelectValue placeholder="Select a city" />
                     </SelectTrigger>
                     <SelectContent>
-                      {TUNISIA_CITIES.map(city => (
+                      {TUNISIA_CITIES.map((city) => (
                         <SelectItem key={city} value={city}>
                           {city}
                         </SelectItem>
@@ -502,7 +481,11 @@ export default function AddCompanyPage() {
 
           {/* Submit Button */}
           <div className="flex flex-col-reverse sm:flex-row gap-3 pt-6 border-t">
-            <Button type="submit" disabled={isSubmitting} className="flex-1">
+            <Button
+              type="submit"
+              disabled={isSubmitting}
+              className="flex-1"
+            >
               {isSubmitting ? 'Creating...' : 'Create Company'}
             </Button>
             <Button
@@ -529,9 +512,7 @@ export default function AddCompanyPage() {
                   <div className="flex items-center gap-2">
                     <Building2 className="size-4" />
                     <span className="font-medium">{pendingData.name}</span>
-                    <Badge variant="secondary">
-                      {pendingData.abbreviation}
-                    </Badge>
+                    <Badge variant="secondary">{pendingData.abbreviation}</Badge>
                   </div>
                   <div className="flex items-center gap-2 text-sm text-l-text-2 dark:text-d-text-2">
                     <Mail className="size-3" />
@@ -562,8 +543,7 @@ export default function AddCompanyPage() {
               ✓ Company Created Successfully!
             </AlertDialogTitle>
             <AlertDialogDescription>
-              The company has been created and is now active. You can view and
-              manage it in the companies list.
+              The company has been created and is now active. You can view and manage it in the companies list.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -9,22 +9,14 @@ import {
 } from '@/components/ui/sidebar';
 
 function AutoCloseSidebarOnRouteChange() {
-  const location = useLocation();
-  const { isMobile, openMobile, setOpenMobile } = useSidebar();
+  const { pathname } = useLocation();
+  const { setOpenMobile } = useSidebar();
 
+  // Close mobile sidebar only when the route changes — not when
+  // openMobile itself changes (which would instantly re-close it).
   useEffect(() => {
-    if (isMobile && openMobile) {
-      setOpenMobile(false);
-    }
-  }, [
-    location.pathname,
-    location.search,
-    location.hash,
-    location.key,
-    isMobile,
-    openMobile,
-    setOpenMobile,
-  ]);
+    setOpenMobile(false);
+  }, [pathname, setOpenMobile]);
 
   return null;
 }

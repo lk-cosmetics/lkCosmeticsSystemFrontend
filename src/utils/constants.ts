@@ -6,7 +6,7 @@
 export const API_CONFIG = {
   BASE_URL:
     (import.meta.env.VITE_API_BASE_URL as string | undefined) ??
-    'http://localhost:8000',
+    '', // Empty string = use relative URLs (http://localhost/api/...) in Docker
   TIMEOUT: 10000,
   RETRY_ATTEMPTS: 3,
 } as const;

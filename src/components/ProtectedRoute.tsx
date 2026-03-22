@@ -18,7 +18,7 @@ export function ProtectedRoute({
   redirectTo = '/login',
 }: Readonly<ProtectedRouteProps>) {
   const [isInitialized, setIsInitialized] = useState(false);
-  const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const isAuthenticated = useAuthStore(state => state.isAuthenticated);
 
   useEffect(() => {
     void waitForAuthInit().then(() => {

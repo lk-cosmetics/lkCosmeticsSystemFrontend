@@ -14,7 +14,8 @@ RUN npm run build
 FROM nginx:1.27-alpine AS runtime
 WORKDIR /usr/share/nginx/html
 
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Use nginx template + envsubst so upstream backend host can be configured per environment.
+COPY nginx.conf /etc/nginx/templates/default.conf.template
 COPY --from=builder /app/dist ./
 
 EXPOSE 80

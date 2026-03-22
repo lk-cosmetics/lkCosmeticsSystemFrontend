@@ -34,9 +34,7 @@ export function AdminDashboard() {
       try {
         setLoading(true);
         // Token is automatically attached by axios interceptor
-        const response = await apiClient.get<DashboardStats>(
-          '/api/v1/dashboard/stats'
-        );
+        const response = await apiClient.get<DashboardStats>('/api/v1/dashboard/stats');
         setStats(response.data);
         setError(null);
       } catch (err) {
@@ -48,7 +46,7 @@ export function AdminDashboard() {
     };
 
     if (canViewStats) {
-      void fetchStats();
+      fetchStats();
     }
   }, [canViewStats]);
 
@@ -62,7 +60,7 @@ export function AdminDashboard() {
           </CardHeader>
           <CardContent>
             <p className="text-muted-foreground mb-4">
-              You don&apos;t have permission to access this page.
+              You don't have permission to access this page.
             </p>
             <LogoutButton variant="outline" className="w-full" />
           </CardContent>
@@ -121,9 +119,7 @@ export function AdminDashboard() {
               {loading ? (
                 <div className="h-12 bg-gray-200 animate-pulse rounded" />
               ) : (
-                <p className="text-3xl font-bold">
-                  {stats?.pendingRequests || 0}
-                </p>
+                <p className="text-3xl font-bold">{stats?.pendingRequests || 0}</p>
               )}
             </CardContent>
           </Card>
@@ -171,9 +167,7 @@ export function AdminDashboard() {
           </div>
           <div>
             <span className="text-sm text-muted-foreground">Permissions: </span>
-            <span className="font-medium">
-              {user?.permissions?.length ?? 0} total
-            </span>
+            <span className="font-medium">{user?.permissions?.length ?? 0} total</span>
           </div>
         </CardContent>
       </Card>

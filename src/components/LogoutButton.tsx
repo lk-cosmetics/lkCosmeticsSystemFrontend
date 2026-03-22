@@ -16,7 +16,7 @@ export function LogoutButton({
   className,
   variant = 'ghost',
 }: Readonly<LogoutButtonProps>) {
-  const logout = useAuthStore((state) => state.logout);
+  const logout = useAuthStore(state => state.logout);
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -25,11 +25,7 @@ export function LogoutButton({
   };
 
   return (
-    <Button
-      onClick={handleLogout}
-      variant={variant}
-      className={className}
-    >
+    <Button onClick={handleLogout} variant={variant} className={className}>
       Logout
     </Button>
   );

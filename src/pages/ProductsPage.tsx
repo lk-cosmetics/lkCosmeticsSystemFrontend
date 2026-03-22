@@ -22,6 +22,10 @@ import {
   Loader2,
   Check,
   Percent,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -75,7 +79,7 @@ import { hasRole } from '@/hooks/useAuth';
 import { promotionService } from '@/services/promotion.service';
 import { getMediaUrl } from '@/utils/helpers';
 import {
-  useProducts,
+  useProductsPaginated,
   useSalesChannels,
   useBrands,
   useCategories,
@@ -124,6 +128,8 @@ const ProductRow = memo(function ProductRow({
   getInventoryStatusBadge,
   formatPrice,
 }: ProductRowProps) {
+  const [imgError, setImgError] = useState(false);
+
   const handleRowClick = useCallback(
     (e: React.MouseEvent<HTMLTableRowElement>) => {
       // Check if click is on interactive elements
@@ -153,6 +159,9 @@ const ProductRow = memo(function ProductRow({
     onToggleSelection(product.id);
   }, [product.id, onToggleSelection]);
 
+  const resolvedImageUrl = getMediaUrl(product.image_url);
+  const showImage = !!resolvedImageUrl && !imgError;
+
   return (
     <TableRow
       className={`group cursor-pointer hover:bg-l-bg-2/50 dark:hover:bg-d-bg-2/50 transition-all duration-150 ${isSelected ? 'bg-primary/5 hover:bg-primary/10' : ''}`}
@@ -169,22 +178,16 @@ const ProductRow = memo(function ProductRow({
       <TableCell>
         <div className="flex items-center gap-3">
           <div className="size-12 rounded-lg overflow-hidden bg-l-bg-2 dark:bg-d-bg-2 flex items-center justify-center border border-l-border dark:border-d-border flex-shrink-0 group-hover:border-primary/30 transition-colors">
-            {product.image_url ? (
+            {showImage ? (
               <img
-                src={getMediaUrl(product.image_url)}
+                src={resolvedImageUrl}
                 alt={product.name}
                 className="size-full object-cover"
-                onError={e => {
-                  e.currentTarget.style.display = 'none';
-                  e.currentTarget.nextElementSibling?.classList.remove(
-                    'hidden'
-                  );
-                }}
+                onError={() => setImgError(true)}
               />
-            ) : null}
-            <Package
-              className={`size-5 text-l-text-3 dark:text-d-text-3 ${product.image_url ? 'hidden' : ''}`}
-            />
+            ) : (
+              <Package className="size-5 text-l-text-3 dark:text-d-text-3" />
+            )}
           </div>
           <div className="min-w-0">
             <p className="font-medium truncate max-w-[200px] group-hover:text-primary transition-colors">
@@ -490,13 +493,58 @@ function ChannelRuleBuilder({
 export default function ProductsPage() {
   const { user } = useAuthStore();
 
-  // React Query - Fetch data with caching
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(20);
+
+  // Filter state (used for server-side filtering)
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [salesChannelFilter, setSalesChannelFilter] = useState<string>('all');
+  const [brandFilter, setBrandFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [stockFilter, setStockFilter] = useState<string>('all');
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setCurrentPage(1);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [salesChannelFilter, brandFilter, statusFilter, stockFilter]);
+
+  // Build query params for server-side pagination
+  const queryParams = useMemo(() => ({
+    page: currentPage,
+    page_size: pageSize,
+    search: debouncedSearch || undefined,
+    sales_channel: salesChannelFilter !== 'all' ? Number(salesChannelFilter) : undefined,
+    brand: brandFilter !== 'all' ? Number(brandFilter) : undefined,
+    status: (statusFilter !== 'all' ? statusFilter : undefined) as 'publish' | 'draft' | 'pending' | 'private' | undefined,
+    inventory_status: (stockFilter !== 'all' ? stockFilter : undefined) as 'instock' | 'outofstock' | 'onbackorder' | undefined,
+  }), [currentPage, pageSize, debouncedSearch, salesChannelFilter, brandFilter, statusFilter, stockFilter]);
+
+  // React Query - Fetch data with server-side pagination
   const {
-    data: products = [],
+    data: paginatedData,
     isLoading,
     error: fetchError,
     refetch,
-  } = useProducts();
+  } = useProductsPaginated(queryParams);
+
+  const products = useMemo(
+    () => dedupeProductsByBrandIdentity(paginatedData?.results ?? []),
+    [paginatedData?.results]
+  );
+  const totalCount = paginatedData?.count ?? 0;
+  const totalPages = Math.ceil(totalCount / pageSize);
+
   const { data: salesChannels = [] } = useSalesChannels();
   const { data: brands = [] } = useBrands();
   const { data: categories = [] } = useCategories();
@@ -511,14 +559,6 @@ export default function ProductsPage() {
   const syncSelectedMutation = useSyncSelectedProductsFromWooCommerce();
 
   // Local UI state (not server state)
-  const [filteredProducts, setFilteredProducts] = useState<ProductListItem[]>(
-    []
-  );
-  const [searchQuery, setSearchQuery] = useState('');
-  const [salesChannelFilter, setSalesChannelFilter] = useState<string>('all');
-  const [brandFilter, setBrandFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [stockFilter, setStockFilter] = useState<string>('all');
 
   // Dialog states
   const [selectedProduct, setSelectedProduct] =
@@ -664,57 +704,7 @@ export default function ProductsPage() {
     return err.message ?? defaultMsg;
   };
 
-  // Filter products based on search and filters
-  useEffect(() => {
-    let filtered = products;
-
-    // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(
-        product =>
-          product.name.toLowerCase().includes(query) ||
-          product.barcode.toLowerCase().includes(query) ||
-          product.sales_channel_name.toLowerCase().includes(query) ||
-          product.brand_name?.toLowerCase().includes(query)
-      );
-    }
-
-    // Sales channel filter
-    if (salesChannelFilter !== 'all') {
-      filtered = filtered.filter(
-        product => product.sales_channel === Number(salesChannelFilter)
-      );
-    }
-
-    // Brand filter
-    if (brandFilter !== 'all') {
-      filtered = filtered.filter(
-        product => product.brand === Number(brandFilter)
-      );
-    }
-
-    // Status filter
-    if (statusFilter !== 'all') {
-      filtered = filtered.filter(product => product.status === statusFilter);
-    }
-
-    // Stock filter
-    if (stockFilter !== 'all') {
-      filtered = filtered.filter(
-        product => product.inventory_status === stockFilter
-      );
-    }
-
-    setFilteredProducts(dedupeProductsByBrandIdentity(filtered));
-  }, [
-    searchQuery,
-    salesChannelFilter,
-    brandFilter,
-    statusFilter,
-    stockFilter,
-    products,
-  ]);
+  // Products are now filtered server-side via queryParams
 
   // Action handlers
   const handleView = useCallback((product: ProductListItem) => {
@@ -906,8 +896,8 @@ export default function ProductsPage() {
   }, []);
 
   const selectAllProducts = useCallback(() => {
-    setSelectedProducts(filteredProducts.map(p => p.id));
-  }, [filteredProducts]);
+    setSelectedProducts(products.map(p => p.id));
+  }, [products]);
 
   const deselectAllProducts = useCallback(() => {
     setSelectedProducts([]);
@@ -1711,7 +1701,7 @@ export default function ProductsPage() {
 
               <div className="flex items-center gap-2 text-sm text-l-text-2 dark:text-d-text-2">
                 <span>
-                  Showing {filteredProducts.length} of {products.length}{' '}
+                  Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalCount)} of {totalCount}{' '}
                   products
                 </span>
               </div>
@@ -1776,8 +1766,8 @@ export default function ProductsPage() {
                 <div className="flex items-center justify-center">
                   <Checkbox
                     checked={
-                      selectedProducts.length === filteredProducts.length &&
-                      filteredProducts.length > 0
+                      selectedProducts.length === products.length &&
+                      products.length > 0
                     }
                     onCheckedChange={checked => {
                       if (checked) selectAllProducts();
@@ -1798,7 +1788,7 @@ export default function ProductsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredProducts.length === 0 ? (
+            {products.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={8}
@@ -1811,7 +1801,7 @@ export default function ProductsPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              filteredProducts.map(product => (
+              products.map(product => (
                 <ProductRow
                   key={product.id}
                   product={product}
@@ -1830,6 +1820,82 @@ export default function ProductsPage() {
           </TableBody>
         </Table>
       </Card>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-l-text-2 dark:text-d-text-2">
+            Page {currentPage} of {totalPages}
+          </p>
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => setCurrentPage(1)}
+              disabled={currentPage === 1}
+            >
+              <ChevronsLeft className="size-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="size-4" />
+            </Button>
+
+            {/* Page number buttons */}
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter(page => {
+                if (totalPages <= 7) return true;
+                if (page === 1 || page === totalPages) return true;
+                if (Math.abs(page - currentPage) <= 1) return true;
+                return false;
+              })
+              .reduce<(number | 'ellipsis')[]>((acc, page, idx, arr) => {
+                if (idx > 0 && page - (arr[idx - 1] as number) > 1) {
+                  acc.push('ellipsis');
+                }
+                acc.push(page);
+                return acc;
+              }, [])
+              .map((item, idx) =>
+                item === 'ellipsis' ? (
+                  <span key={`ellipsis-${idx}`} className="px-2 text-l-text-3 dark:text-d-text-3">
+                    ...
+                  </span>
+                ) : (
+                  <Button
+                    key={item}
+                    variant={currentPage === item ? 'default' : 'outline'}
+                    size="icon-sm"
+                    onClick={() => setCurrentPage(item)}
+                  >
+                    {item}
+                  </Button>
+                )
+              )}
+
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+              disabled={currentPage === totalPages}
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => setCurrentPage(totalPages)}
+              disabled={currentPage === totalPages}
+            >
+              <ChevronsRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* View Product Dialog */}
       <Dialog open={viewDialog} onOpenChange={setViewDialog}>
@@ -1854,10 +1920,13 @@ export default function ProductsPage() {
                       src={getMediaUrl(selectedProduct.image_url)}
                       alt={selectedProduct.name}
                       className="size-full object-cover"
+                      onError={e => {
+                        (e.currentTarget as HTMLElement).style.display = 'none';
+                        (e.currentTarget.parentElement?.querySelector('.fallback-icon') as HTMLElement | null)?.classList.remove('hidden');
+                      }}
                     />
-                  ) : (
-                    <Package className="size-10 text-l-text-3 dark:text-d-text-3" />
-                  )}
+                  ) : null}
+                  <Package className={`fallback-icon size-10 text-l-text-3 dark:text-d-text-3 ${selectedProduct.image_url ? 'hidden' : ''}`} />
                 </div>
                 <div className="flex-1 space-y-3">
                   <h3 className="text-xl font-bold leading-tight">

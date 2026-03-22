@@ -1,19 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { promotionService } from '@/services/promotion.service';
-import type { CreatePromotionRequest, UpdatePromotionRequest } from '@/types';
+import type { 
+  CreatePromotionRequest, 
+  UpdatePromotionRequest 
+} from '@/types';
 
 // Query Keys
 export const promotionsKeys = {
   all: ['promotions'] as const,
   lists: () => [...promotionsKeys.all, 'list'] as const,
-  list: (filters?: Record<string, unknown>) =>
-    [...promotionsKeys.lists(), filters] as const,
+  list: (filters?: Record<string, unknown>) => [...promotionsKeys.lists(), filters] as const,
   details: () => [...promotionsKeys.all, 'detail'] as const,
   detail: (id: number) => [...promotionsKeys.details(), id] as const,
-  channelRules: (id: number) =>
-    [...promotionsKeys.detail(id), 'channelRules'] as const,
-  analytics: (id: number) =>
-    [...promotionsKeys.detail(id), 'analytics'] as const,
+  channelRules: (id: number) => [...promotionsKeys.detail(id), 'channelRules'] as const,
+  analytics: (id: number) => [...promotionsKeys.detail(id), 'analytics'] as const,
 };
 
 // ============================================================================
@@ -74,10 +74,9 @@ export function useCreatePromotion() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: CreatePromotionRequest) =>
-      promotionService.createPromotion(data),
+    mutationFn: (data: CreatePromotionRequest) => promotionService.createPromotion(data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
     },
   });
 }
@@ -92,10 +91,8 @@ export function useUpdatePromotion() {
     mutationFn: ({ id, data }: { id: number; data: UpdatePromotionRequest }) =>
       promotionService.updatePromotion(id, data),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: promotionsKeys.detail(variables.id),
-      });
-      void queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.detail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
     },
   });
 }
@@ -109,7 +106,7 @@ export function useDeletePromotion() {
   return useMutation({
     mutationFn: (id: number) => promotionService.deletePromotion(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
     },
   });
 }
@@ -123,10 +120,8 @@ export function useActivatePromotion() {
   return useMutation({
     mutationFn: (id: number) => promotionService.activatePromotion(id),
     onSuccess: (_data, id) => {
-      void queryClient.invalidateQueries({
-        queryKey: promotionsKeys.detail(id),
-      });
-      void queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
     },
   });
 }
@@ -140,10 +135,8 @@ export function useDeactivatePromotion() {
   return useMutation({
     mutationFn: (id: number) => promotionService.deactivatePromotion(id),
     onSuccess: (_data, id) => {
-      void queryClient.invalidateQueries({
-        queryKey: promotionsKeys.detail(id),
-      });
-      void queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.detail(id) });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
     },
   });
 }
@@ -157,7 +150,7 @@ export function useDuplicatePromotion() {
   return useMutation({
     mutationFn: (id: number) => promotionService.duplicatePromotion(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
     },
   });
 }
@@ -167,11 +160,8 @@ export function useDuplicatePromotion() {
  */
 export function useCalculateDiscount() {
   return useMutation({
-    mutationFn: (data: {
-      promotion_id: number;
-      sales_channel_id: number;
-      product_id: number;
-    }) => promotionService.calculateDiscount(data),
+    mutationFn: (data: { promotion_id: number; sales_channel_id: number; product_id: number }) =>
+      promotionService.calculateDiscount(data),
   });
 }
 
@@ -184,7 +174,7 @@ export function useBulkActivatePromotions() {
   return useMutation({
     mutationFn: (ids: number[]) => promotionService.bulkActivate(ids),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
     },
   });
 }
@@ -198,7 +188,7 @@ export function useBulkDeactivatePromotions() {
   return useMutation({
     mutationFn: (ids: number[]) => promotionService.bulkDeactivate(ids),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
     },
   });
 }
@@ -212,7 +202,7 @@ export function useBulkDeletePromotions() {
   return useMutation({
     mutationFn: (ids: number[]) => promotionService.bulkDelete(ids),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: promotionsKeys.lists() });
     },
   });
 }

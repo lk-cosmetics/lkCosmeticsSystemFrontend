@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
-import { 
-  Eye, 
-  Pencil, 
-  Trash2, 
-  Search, 
+import {
+  Eye,
+  Pencil,
+  Trash2,
+  Search,
   Filter,
   MoreVertical,
   Building2,
@@ -17,7 +17,7 @@ import {
   Check,
   RefreshCw,
   Link2,
-  Power
+  Power,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -66,7 +66,12 @@ import {
 } from '@/components/ui/select';
 import { salesChannelService } from '@/services/salesChannel.service';
 import { brandService } from '@/services/brand.service';
-import type { SalesChannel, Brand, ChannelType, GenerateCredentialsResponse } from '@/types';
+import type {
+  SalesChannel,
+  Brand,
+  ChannelType,
+  GenerateCredentialsResponse,
+} from '@/types';
 
 export default function SalesChannelsPage() {
   const [channels, setChannels] = useState<SalesChannel[]>([]);
@@ -79,12 +84,16 @@ export default function SalesChannelsPage() {
   const [error, setError] = useState<string | null>(null);
 
   // Dialog states
-  const [selectedChannel, setSelectedChannel] = useState<SalesChannel | null>(null);
-  const [channelToDelete, setChannelToDelete] = useState<SalesChannel | null>(null);
-  const [editFormData, setEditFormData] = useState<{ 
-    id: number; 
-    name: string; 
-    brand: number; 
+  const [selectedChannel, setSelectedChannel] = useState<SalesChannel | null>(
+    null
+  );
+  const [channelToDelete, setChannelToDelete] = useState<SalesChannel | null>(
+    null
+  );
+  const [editFormData, setEditFormData] = useState<{
+    id: number;
+    name: string;
+    brand: number;
     channel_type: ChannelType;
     is_active: boolean;
     store_url?: string;
@@ -103,54 +112,65 @@ export default function SalesChannelsPage() {
   // Add channel form state
   const [newChannelName, setNewChannelName] = useState('');
   const [newChannelBrand, setNewChannelBrand] = useState<string>('');
-  const [newChannelType, setNewChannelType] = useState<ChannelType>('WOOCOMMERCE');
+  const [newChannelType, setNewChannelType] =
+    useState<ChannelType>('WOOCOMMERCE');
   const [newChannelStoreUrl, setNewChannelStoreUrl] = useState('');
   const [newChannelConsumerKey, setNewChannelConsumerKey] = useState('');
   const [newChannelConsumerSecret, setNewChannelConsumerSecret] = useState('');
 
   // Credentials state
-  const [credentials, setCredentials] = useState<GenerateCredentialsResponse | null>(null);
-  const [newChannelCredentials, setNewChannelCredentials] = useState<SalesChannel | null>(null);
+  const [credentials, setCredentials] =
+    useState<GenerateCredentialsResponse | null>(null);
+  const [newChannelCredentials, setNewChannelCredentials] =
+    useState<SalesChannel | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isGeneratingCredentials, setIsGeneratingCredentials] = useState(false);
 
   // Helper function to extract error messages
   const extractErrorMessage = (error: unknown): string => {
     const defaultMsg = 'An error occurred. Please try again.';
-    
+
     if (!error || typeof error !== 'object') {
       return defaultMsg;
     }
 
     const err = error as { response?: { data?: unknown }; message?: string };
-    
+
     if (err.response?.data) {
       const data = err.response.data;
-      
+
       if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
-        const fieldErrors = Object.entries(data as Record<string, unknown>)
-          .flatMap(([field, messages]) => {
-            const fieldName = field.split('_').map(word => word.charAt(0).toUpperCase() + word.slice(1)).join(' ');
-            if (Array.isArray(messages)) {
-              return messages.map(msg => `${fieldName}: ${msg}`);
-            }
-            return typeof messages === 'string' ? [`${fieldName}: ${messages}`] : [];
-          });
-        
+        const fieldErrors = Object.entries(
+          data as Record<string, unknown>
+        ).flatMap(([field, messages]) => {
+          const fieldName = field
+            .split('_')
+            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+            .join(' ');
+          if (Array.isArray(messages)) {
+            return messages.map(msg => `${fieldName}: ${msg}`);
+          }
+          return typeof messages === 'string'
+            ? [`${fieldName}: ${messages}`]
+            : [];
+        });
+
         if (fieldErrors.length > 0) {
           return 'Validation errors:\n\n' + fieldErrors.join('\n');
         }
-        
+
         const dataObj = data as { detail?: string; message?: string };
         return dataObj.detail ?? dataObj.message ?? defaultMsg;
       }
-      
+
       if (typeof data === 'string') return data;
     }
-    
-    if (err.message?.includes('Network Error')) return 'Network error. Please check your connection.';
-    if (err.message?.includes('timeout')) return 'Request timeout. Please try again.';
-    
+
+    if (err.message?.includes('Network Error'))
+      return 'Network error. Please check your connection.';
+    if (err.message?.includes('timeout'))
+      return 'Request timeout. Please try again.';
+
     return err.message ?? defaultMsg;
   };
 
@@ -165,7 +185,7 @@ export default function SalesChannelsPage() {
       setError(null);
       const [channelsData, brandsData] = await Promise.all([
         salesChannelService.getAllChannels(),
-        brandService.getAllBrands()
+        brandService.getAllBrands(),
       ]);
       setChannels(channelsData);
       setFilteredChannels(channelsData);
@@ -186,7 +206,7 @@ export default function SalesChannelsPage() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
-        (channel) =>
+        channel =>
           channel.name.toLowerCase().includes(query) ||
           channel.brand_name.toLowerCase().includes(query) ||
           channel.company_name.toLowerCase().includes(query)
@@ -195,12 +215,16 @@ export default function SalesChannelsPage() {
 
     // Brand filter
     if (brandFilter !== 'all') {
-      filtered = filtered.filter((channel) => channel.brand === Number(brandFilter));
+      filtered = filtered.filter(
+        channel => channel.brand === Number(brandFilter)
+      );
     }
 
     // Type filter
     if (typeFilter !== 'all') {
-      filtered = filtered.filter((channel) => channel.channel_type === typeFilter);
+      filtered = filtered.filter(
+        channel => channel.channel_type === typeFilter
+      );
     }
 
     setFilteredChannels(filtered);
@@ -213,13 +237,13 @@ export default function SalesChannelsPage() {
   }, []);
 
   const handleEdit = useCallback((channel: SalesChannel) => {
-    setEditFormData({ 
-      id: channel.id, 
-      name: channel.name, 
+    setEditFormData({
+      id: channel.id,
+      name: channel.name,
       brand: channel.brand,
       channel_type: channel.channel_type,
       is_active: channel.is_active,
-      store_url: channel.woocommerce_config?.store_url || ''
+      store_url: channel.woocommerce_config?.store_url || '',
     });
     setEditDialog(true);
   }, []);
@@ -233,12 +257,18 @@ export default function SalesChannelsPage() {
         brand: editFormData.brand,
         is_active: editFormData.is_active,
       };
-      
-      if (editFormData.channel_type === 'WOOCOMMERCE' && editFormData.store_url) {
+
+      if (
+        editFormData.channel_type === 'WOOCOMMERCE' &&
+        editFormData.store_url
+      ) {
         updateData.woocommerce_config = { store_url: editFormData.store_url };
       }
-      
-      await salesChannelService.partialUpdateChannel(editFormData.id, updateData);
+
+      await salesChannelService.partialUpdateChannel(
+        editFormData.id,
+        updateData
+      );
       setSuccessMessage('Sales channel updated successfully!');
       setSuccessDialog(true);
       setEditDialog(false);
@@ -287,7 +317,9 @@ export default function SalesChannelsPage() {
         return;
       }
       if (!newChannelConsumerKey.trim() || !newChannelConsumerSecret.trim()) {
-        setErrorMessage('Consumer Key and Consumer Secret are required for WooCommerce channels.');
+        setErrorMessage(
+          'Consumer Key and Consumer Secret are required for WooCommerce channels.'
+        );
         setErrorDialog(true);
         return;
       }
@@ -299,7 +331,7 @@ export default function SalesChannelsPage() {
         brand: number;
         channel_type: ChannelType;
         is_active: boolean;
-        woocommerce_config?: { 
+        woocommerce_config?: {
           store_url: string;
           consumer_key: string;
           consumer_secret: string;
@@ -310,28 +342,32 @@ export default function SalesChannelsPage() {
         channel_type: newChannelType,
         is_active: true,
       };
-      
+
       if (newChannelType === 'WOOCOMMERCE') {
-        createData.woocommerce_config = { 
+        createData.woocommerce_config = {
           store_url: newChannelStoreUrl.trim(),
           consumer_key: newChannelConsumerKey.trim(),
           consumer_secret: newChannelConsumerSecret.trim(),
         };
       }
-      
-      const createdChannel = await salesChannelService.createChannel(createData);
+
+      const createdChannel =
+        await salesChannelService.createChannel(createData);
       setAddDialog(false);
       resetAddForm();
-      
+
       // Show credentials dialog for WooCommerce channels (to show the auto-generated webhook_token)
-      if (newChannelType === 'WOOCOMMERCE' && createdChannel.woocommerce_config?.webhook_token) {
+      if (
+        newChannelType === 'WOOCOMMERCE' &&
+        createdChannel.woocommerce_config?.webhook_token
+      ) {
         setNewChannelCredentials(createdChannel);
         setCredentialsDialog(true);
       } else {
         setSuccessMessage('Sales channel created successfully!');
         setSuccessDialog(true);
       }
-      
+
       fetchData();
     } catch (err) {
       console.error('Error creating channel:', err);
@@ -369,9 +405,11 @@ export default function SalesChannelsPage() {
   const handleToggleStatus = async (channel: SalesChannel) => {
     try {
       await salesChannelService.partialUpdateChannel(channel.id, {
-        is_active: !channel.is_active
+        is_active: !channel.is_active,
       });
-      setSuccessMessage(`Channel ${channel.is_active ? 'deactivated' : 'activated'} successfully!`);
+      setSuccessMessage(
+        `Channel ${channel.is_active ? 'deactivated' : 'activated'} successfully!`
+      );
       setSuccessDialog(true);
       fetchData();
     } catch (err) {
@@ -391,7 +429,9 @@ export default function SalesChannelsPage() {
     }
   };
 
-  const getChannelTypeBadgeVariant = (type: ChannelType): 'default' | 'secondary' => {
+  const getChannelTypeBadgeVariant = (
+    type: ChannelType
+  ): 'default' | 'secondary' => {
     return type === 'WOOCOMMERCE' ? 'default' : 'secondary';
   };
 
@@ -400,7 +440,9 @@ export default function SalesChannelsPage() {
       <div className="flex flex-1 items-center justify-center p-4">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-l-text-2 dark:text-d-text-2">Loading sales channels...</p>
+          <p className="text-l-text-2 dark:text-d-text-2">
+            Loading sales channels...
+          </p>
         </div>
       </div>
     );
@@ -425,7 +467,9 @@ export default function SalesChannelsPage() {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Sales Channels</h1>
+            <h1 className="text-3xl font-bold tracking-tight">
+              Sales Channels
+            </h1>
             <p className="text-l-text-2 dark:text-d-text-2 mt-2">
               Manage WooCommerce and POS sales channels
             </p>
@@ -445,7 +489,7 @@ export default function SalesChannelsPage() {
               <Input
                 placeholder="Search by channel, brand or company..."
                 value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={e => setSearchQuery(e.target.value)}
                 className="pl-10"
               />
             </div>
@@ -459,7 +503,7 @@ export default function SalesChannelsPage() {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Brands</SelectItem>
-                  {brands.map((brand) => (
+                  {brands.map(brand => (
                     <SelectItem key={brand.id} value={String(brand.id)}>
                       {brand.name}
                     </SelectItem>
@@ -483,7 +527,9 @@ export default function SalesChannelsPage() {
           </div>
 
           <div className="mt-4 flex items-center gap-2 text-sm text-l-text-2 dark:text-d-text-2">
-            <span>Showing {filteredChannels.length} of {channels.length} channels</span>
+            <span>
+              Showing {filteredChannels.length} of {channels.length} channels
+            </span>
           </div>
         </Card>
       </div>
@@ -504,13 +550,16 @@ export default function SalesChannelsPage() {
           <TableBody>
             {filteredChannels.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-l-text-2 dark:text-d-text-2">
+                <TableCell
+                  colSpan={6}
+                  className="text-center py-8 text-l-text-2 dark:text-d-text-2"
+                >
                   No sales channels found
                 </TableCell>
               </TableRow>
             ) : (
-              filteredChannels.map((channel) => (
-                <TableRow 
+              filteredChannels.map(channel => (
+                <TableRow
                   key={channel.id}
                   className="cursor-pointer hover:bg-l-bg-2 dark:hover:bg-d-bg-2 transition-colors"
                   onClick={() => handleView(channel)}
@@ -538,13 +587,17 @@ export default function SalesChannelsPage() {
                   <TableCell>
                     <div className="flex items-center gap-2 text-sm">
                       <Tag className="size-4 text-l-text-3 dark:text-d-text-3" />
-                      <span className="text-l-text-2 dark:text-d-text-2">{channel.brand_name}</span>
+                      <span className="text-l-text-2 dark:text-d-text-2">
+                        {channel.brand_name}
+                      </span>
                     </div>
                   </TableCell>
 
                   {/* Type */}
                   <TableCell>
-                    <Badge variant={getChannelTypeBadgeVariant(channel.channel_type)}>
+                    <Badge
+                      variant={getChannelTypeBadgeVariant(channel.channel_type)}
+                    >
                       {channel.channel_type_display}
                     </Badge>
                   </TableCell>
@@ -568,7 +621,10 @@ export default function SalesChannelsPage() {
                   </TableCell>
 
                   {/* Actions */}
-                  <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
+                  <TableCell
+                    className="text-right"
+                    onClick={e => e.stopPropagation()}
+                  >
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
                         <Button variant="ghost" size="icon">
@@ -586,14 +642,16 @@ export default function SalesChannelsPage() {
                           <Pencil className="size-4 mr-2" />
                           Edit Channel
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleToggleStatus(channel)}>
+                        <DropdownMenuItem
+                          onClick={() => handleToggleStatus(channel)}
+                        >
                           <Power className="size-4 mr-2" />
                           {channel.is_active ? 'Deactivate' : 'Activate'}
                         </DropdownMenuItem>
                         {channel.channel_type === 'WOOCOMMERCE' && (
                           <>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem 
+                            <DropdownMenuItem
                               onClick={() => handleRegenerateWebhook(channel)}
                               disabled={isGeneratingCredentials}
                             >
@@ -603,7 +661,7 @@ export default function SalesChannelsPage() {
                           </>
                         )}
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => handleDelete(channel)}
                           className="text-red-600 dark:text-red-400"
                         >
@@ -629,7 +687,7 @@ export default function SalesChannelsPage() {
               Complete information about the sales channel
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedChannel && (
             <div className="space-y-6">
               {/* Header */}
@@ -642,12 +700,22 @@ export default function SalesChannelsPage() {
                   )}
                 </div>
                 <div>
-                  <h3 className="text-2xl font-semibold">{selectedChannel.name}</h3>
+                  <h3 className="text-2xl font-semibold">
+                    {selectedChannel.name}
+                  </h3>
                   <div className="flex items-center gap-3 mt-2">
-                    <Badge variant={getChannelTypeBadgeVariant(selectedChannel.channel_type)}>
+                    <Badge
+                      variant={getChannelTypeBadgeVariant(
+                        selectedChannel.channel_type
+                      )}
+                    >
                       {selectedChannel.channel_type_display}
                     </Badge>
-                    <Badge variant={selectedChannel.is_active ? 'default' : 'destructive'}>
+                    <Badge
+                      variant={
+                        selectedChannel.is_active ? 'default' : 'destructive'
+                      }
+                    >
                       {selectedChannel.is_active ? 'Active' : 'Inactive'}
                     </Badge>
                   </div>
@@ -662,139 +730,209 @@ export default function SalesChannelsPage() {
                 </h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="space-y-1">
-                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Brand</span>
+                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                      Brand
+                    </span>
                     <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                       <Tag className="size-4 text-accent-1" />
-                      <span className="text-sm">{selectedChannel.brand_name}</span>
+                      <span className="text-sm">
+                        {selectedChannel.brand_name}
+                      </span>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Company</span>
+                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                      Company
+                    </span>
                     <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                       <Building2 className="size-4 text-accent-1" />
-                      <span className="text-sm">{selectedChannel.company_name}</span>
+                      <span className="text-sm">
+                        {selectedChannel.company_name}
+                      </span>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Created</span>
+                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                      Created
+                    </span>
                     <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                       <Calendar className="size-4 text-accent-1" />
-                      <span className="text-sm">{new Date(selectedChannel.created_at).toLocaleString()}</span>
+                      <span className="text-sm">
+                        {new Date(selectedChannel.created_at).toLocaleString()}
+                      </span>
                     </div>
                   </div>
 
                   <div className="space-y-1">
-                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Last Updated</span>
+                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                      Last Updated
+                    </span>
                     <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                       <Calendar className="size-4 text-accent-1" />
-                      <span className="text-sm">{new Date(selectedChannel.updated_at).toLocaleString()}</span>
+                      <span className="text-sm">
+                        {new Date(selectedChannel.updated_at).toLocaleString()}
+                      </span>
                     </div>
                   </div>
                 </div>
               </div>
 
               {/* WooCommerce Config */}
-              {selectedChannel.channel_type === 'WOOCOMMERCE' && selectedChannel.woocommerce_config && (
-                <div className="space-y-3">
-                  <h4 className="text-sm font-semibold text-l-text-2 dark:text-d-text-2 flex items-center gap-2">
-                    <Globe className="size-4" />
-                    WooCommerce Configuration
-                  </h4>
+              {selectedChannel.channel_type === 'WOOCOMMERCE' &&
+                selectedChannel.woocommerce_config && (
                   <div className="space-y-3">
-                    <div className="space-y-1">
-                      <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Store URL</span>
-                      <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
-                        <Link2 className="size-4 text-accent-1" />
-                        <span className="text-sm font-mono flex-1 truncate">
-                          {selectedChannel.woocommerce_config.store_url}
+                    <h4 className="text-sm font-semibold text-l-text-2 dark:text-d-text-2 flex items-center gap-2">
+                      <Globe className="size-4" />
+                      WooCommerce Configuration
+                    </h4>
+                    <div className="space-y-3">
+                      <div className="space-y-1">
+                        <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                          Store URL
                         </span>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-6"
-                          onClick={() => copyToClipboard(selectedChannel.woocommerce_config!.store_url, 'url')}
-                        >
-                          {copiedField === 'url' ? <Check className="size-3" /> : <Copy className="size-3" />}
-                        </Button>
+                        <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
+                          <Link2 className="size-4 text-accent-1" />
+                          <span className="text-sm font-mono flex-1 truncate">
+                            {selectedChannel.woocommerce_config.store_url}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-6"
+                            onClick={() =>
+                              copyToClipboard(
+                                selectedChannel.woocommerce_config!.store_url,
+                                'url'
+                              )
+                            }
+                          >
+                            {copiedField === 'url' ? (
+                              <Check className="size-3" />
+                            ) : (
+                              <Copy className="size-3" />
+                            )}
+                          </Button>
+                        </div>
                       </div>
+
+                      {selectedChannel.woocommerce_config.consumer_key && (
+                        <div className="space-y-1">
+                          <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                            Consumer Key
+                          </span>
+                          <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
+                            <Key className="size-4 text-accent-1" />
+                            <span className="text-sm font-mono flex-1 truncate">
+                              {selectedChannel.woocommerce_config.consumer_key}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-6"
+                              onClick={() =>
+                                copyToClipboard(
+                                  selectedChannel.woocommerce_config!
+                                    .consumer_key!,
+                                  'key'
+                                )
+                              }
+                            >
+                              {copiedField === 'key' ? (
+                                <Check className="size-3" />
+                              ) : (
+                                <Copy className="size-3" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedChannel.woocommerce_config.consumer_secret && (
+                        <div className="space-y-1">
+                          <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                            Consumer Secret
+                          </span>
+                          <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
+                            <Key className="size-4 text-accent-1" />
+                            <span className="text-sm font-mono flex-1 truncate">
+                              {
+                                selectedChannel.woocommerce_config
+                                  .consumer_secret
+                              }
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-6"
+                              onClick={() =>
+                                copyToClipboard(
+                                  selectedChannel.woocommerce_config!
+                                    .consumer_secret!,
+                                  'secret'
+                                )
+                              }
+                            >
+                              {copiedField === 'secret' ? (
+                                <Check className="size-3" />
+                              ) : (
+                                <Copy className="size-3" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedChannel.woocommerce_config.webhook_token && (
+                        <div className="space-y-1">
+                          <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                            Webhook Token
+                          </span>
+                          <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
+                            <Key className="size-4 text-accent-1" />
+                            <span className="text-sm font-mono flex-1 truncate">
+                              {selectedChannel.woocommerce_config.webhook_token}
+                            </span>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="size-6"
+                              onClick={() =>
+                                copyToClipboard(
+                                  selectedChannel.woocommerce_config!
+                                    .webhook_token!,
+                                  'webhook'
+                                )
+                              }
+                            >
+                              {copiedField === 'webhook' ? (
+                                <Check className="size-3" />
+                              ) : (
+                                <Copy className="size-3" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                     </div>
-
-                    {selectedChannel.woocommerce_config.consumer_key && (
-                      <div className="space-y-1">
-                        <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Consumer Key</span>
-                        <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
-                          <Key className="size-4 text-accent-1" />
-                          <span className="text-sm font-mono flex-1 truncate">
-                            {selectedChannel.woocommerce_config.consumer_key}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6"
-                            onClick={() => copyToClipboard(selectedChannel.woocommerce_config!.consumer_key!, 'key')}
-                          >
-                            {copiedField === 'key' ? <Check className="size-3" /> : <Copy className="size-3" />}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-
-                    {selectedChannel.woocommerce_config.consumer_secret && (
-                      <div className="space-y-1">
-                        <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Consumer Secret</span>
-                        <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
-                          <Key className="size-4 text-accent-1" />
-                          <span className="text-sm font-mono flex-1 truncate">
-                            {selectedChannel.woocommerce_config.consumer_secret}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6"
-                            onClick={() => copyToClipboard(selectedChannel.woocommerce_config!.consumer_secret!, 'secret')}
-                          >
-                            {copiedField === 'secret' ? <Check className="size-3" /> : <Copy className="size-3" />}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
-
-                    {selectedChannel.woocommerce_config.webhook_token && (
-                      <div className="space-y-1">
-                        <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Webhook Token</span>
-                        <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
-                          <Key className="size-4 text-accent-1" />
-                          <span className="text-sm font-mono flex-1 truncate">
-                            {selectedChannel.woocommerce_config.webhook_token}
-                          </span>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="size-6"
-                            onClick={() => copyToClipboard(selectedChannel.woocommerce_config!.webhook_token!, 'webhook')}
-                          >
-                            {copiedField === 'webhook' ? <Check className="size-3" /> : <Copy className="size-3" />}
-                          </Button>
-                        </div>
-                      </div>
-                    )}
                   </div>
-                </div>
-              )}
+                )}
 
               {/* Action Buttons */}
               <div className="flex gap-3 pt-4 border-t">
-                <Button onClick={() => {
-                  setViewDialog(false);
-                  handleEdit(selectedChannel);
-                }} className="flex-1 gap-2">
+                <Button
+                  onClick={() => {
+                    setViewDialog(false);
+                    handleEdit(selectedChannel);
+                  }}
+                  className="flex-1 gap-2"
+                >
                   <Pencil className="size-4" />
                   Edit Channel
                 </Button>
                 {selectedChannel.channel_type === 'WOOCOMMERCE' && (
-                  <Button 
+                  <Button
                     variant="outline"
                     onClick={() => {
                       setViewDialog(false);
@@ -803,7 +941,9 @@ export default function SalesChannelsPage() {
                     className="flex-1 gap-2"
                     disabled={isGeneratingCredentials}
                   >
-                    <RefreshCw className={`size-4 ${isGeneratingCredentials ? 'animate-spin' : ''}`} />
+                    <RefreshCw
+                      className={`size-4 ${isGeneratingCredentials ? 'animate-spin' : ''}`}
+                    />
                     Regenerate Webhook Token
                   </Button>
                 )}
@@ -818,9 +958,7 @@ export default function SalesChannelsPage() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Edit Sales Channel</DialogTitle>
-            <DialogDescription>
-              Update channel information
-            </DialogDescription>
+            <DialogDescription>Update channel information</DialogDescription>
           </DialogHeader>
 
           {editFormData && (
@@ -832,7 +970,7 @@ export default function SalesChannelsPage() {
                   <Input
                     id="edit-name"
                     value={editFormData.name}
-                    onChange={(e) =>
+                    onChange={e =>
                       setEditFormData({ ...editFormData, name: e.target.value })
                     }
                     className="pl-10"
@@ -848,15 +986,18 @@ export default function SalesChannelsPage() {
                     <Tag className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-l-text-3 dark:text-d-text-3 z-10 pointer-events-none" />
                     <Select
                       value={String(editFormData.brand)}
-                      onValueChange={(value) =>
-                        setEditFormData({ ...editFormData, brand: Number(value) })
+                      onValueChange={value =>
+                        setEditFormData({
+                          ...editFormData,
+                          brand: Number(value),
+                        })
                       }
                     >
                       <SelectTrigger id="edit-brand" className="pl-10">
                         <SelectValue placeholder="Select a brand" />
                       </SelectTrigger>
                       <SelectContent>
-                        {brands.map((brand) => (
+                        {brands.map(brand => (
                           <SelectItem key={brand.id} value={String(brand.id)}>
                             {brand.name}
                           </SelectItem>
@@ -871,8 +1012,11 @@ export default function SalesChannelsPage() {
                 <Label htmlFor="edit-active">Status</Label>
                 <Select
                   value={editFormData.is_active ? 'active' : 'inactive'}
-                  onValueChange={(value) =>
-                    setEditFormData({ ...editFormData, is_active: value === 'active' })
+                  onValueChange={value =>
+                    setEditFormData({
+                      ...editFormData,
+                      is_active: value === 'active',
+                    })
                   }
                 >
                   <SelectTrigger id="edit-active">
@@ -893,8 +1037,11 @@ export default function SalesChannelsPage() {
                     <Input
                       id="edit-store-url"
                       value={editFormData.store_url || ''}
-                      onChange={(e) =>
-                        setEditFormData({ ...editFormData, store_url: e.target.value })
+                      onChange={e =>
+                        setEditFormData({
+                          ...editFormData,
+                          store_url: e.target.value,
+                        })
                       }
                       className="pl-10"
                       placeholder="https://store.example.com"
@@ -940,7 +1087,7 @@ export default function SalesChannelsPage() {
                 <Input
                   id="new-name"
                   value={newChannelName}
-                  onChange={(e) => setNewChannelName(e.target.value)}
+                  onChange={e => setNewChannelName(e.target.value)}
                   className="pl-10"
                   placeholder="Enter channel name"
                 />
@@ -960,7 +1107,7 @@ export default function SalesChannelsPage() {
                       <SelectValue placeholder="Select a brand" />
                     </SelectTrigger>
                     <SelectContent>
-                      {brands.map((brand) => (
+                      {brands.map(brand => (
                         <SelectItem key={brand.id} value={String(brand.id)}>
                           {brand.name}
                         </SelectItem>
@@ -975,7 +1122,7 @@ export default function SalesChannelsPage() {
               <Label htmlFor="new-type">Channel Type *</Label>
               <Select
                 value={newChannelType}
-                onValueChange={(value) => setNewChannelType(value as ChannelType)}
+                onValueChange={value => setNewChannelType(value as ChannelType)}
               >
                 <SelectTrigger id="new-type">
                   <SelectValue />
@@ -1006,7 +1153,7 @@ export default function SalesChannelsPage() {
                     <Input
                       id="new-store-url"
                       value={newChannelStoreUrl}
-                      onChange={(e) => setNewChannelStoreUrl(e.target.value)}
+                      onChange={e => setNewChannelStoreUrl(e.target.value)}
                       className="pl-10"
                       placeholder="https://store.example.com"
                     />
@@ -1020,7 +1167,7 @@ export default function SalesChannelsPage() {
                     <Input
                       id="new-consumer-key"
                       value={newChannelConsumerKey}
-                      onChange={(e) => setNewChannelConsumerKey(e.target.value)}
+                      onChange={e => setNewChannelConsumerKey(e.target.value)}
                       className="pl-10 font-mono text-sm"
                       placeholder="ck_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                     />
@@ -1035,7 +1182,9 @@ export default function SalesChannelsPage() {
                       id="new-consumer-secret"
                       type="password"
                       value={newChannelConsumerSecret}
-                      onChange={(e) => setNewChannelConsumerSecret(e.target.value)}
+                      onChange={e =>
+                        setNewChannelConsumerSecret(e.target.value)
+                      }
                       className="pl-10 font-mono text-sm"
                       placeholder="cs_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
                     />
@@ -1043,7 +1192,8 @@ export default function SalesChannelsPage() {
                 </div>
 
                 <p className="text-xs text-l-text-3 dark:text-d-text-3">
-                  Get credentials from WooCommerce → Settings → Advanced → REST API
+                  Get credentials from WooCommerce → Settings → Advanced → REST
+                  API
                 </p>
               </div>
             )}
@@ -1075,10 +1225,12 @@ export default function SalesChannelsPage() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-green-600 dark:text-green-500">
               <Key className="size-5" />
-              {newChannelCredentials ? 'Channel Created Successfully' : 'Webhook Token Generated'}
+              {newChannelCredentials
+                ? 'Channel Created Successfully'
+                : 'Webhook Token Generated'}
             </DialogTitle>
             <DialogDescription>
-              {newChannelCredentials 
+              {newChannelCredentials
                 ? 'Your WooCommerce channel is ready. Save the webhook token below.'
                 : 'Copy the webhook token now. It will not be shown again.'}
             </DialogDescription>
@@ -1089,13 +1241,16 @@ export default function SalesChannelsPage() {
             <div className="space-y-4">
               <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                 <p className="text-sm text-green-800 dark:text-green-200">
-                  ✅ Channel created! Use the webhook token below to configure webhooks in WooCommerce.
+                  ✅ Channel created! Use the webhook token below to configure
+                  webhooks in WooCommerce.
                 </p>
               </div>
 
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Store URL</span>
+                  <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                    Store URL
+                  </span>
                   <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                     <span className="text-sm font-mono flex-1 truncate">
                       {newChannelCredentials.woocommerce_config.store_url}
@@ -1104,16 +1259,27 @@ export default function SalesChannelsPage() {
                       variant="ghost"
                       size="icon"
                       className="size-8"
-                      onClick={() => copyToClipboard(newChannelCredentials.woocommerce_config!.store_url, 'new-url')}
+                      onClick={() =>
+                        copyToClipboard(
+                          newChannelCredentials.woocommerce_config!.store_url,
+                          'new-url'
+                        )
+                      }
                     >
-                      {copiedField === 'new-url' ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
+                      {copiedField === 'new-url' ? (
+                        <Check className="size-4 text-green-500" />
+                      ) : (
+                        <Copy className="size-4" />
+                      )}
                     </Button>
                   </div>
                 </div>
 
                 {newChannelCredentials.woocommerce_config.webhook_token && (
                   <div className="space-y-1">
-                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Webhook Token</span>
+                    <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                      Webhook Token
+                    </span>
                     <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                       <span className="text-sm font-mono flex-1 truncate">
                         {newChannelCredentials.woocommerce_config.webhook_token}
@@ -1122,23 +1288,34 @@ export default function SalesChannelsPage() {
                         variant="ghost"
                         size="icon"
                         className="size-8"
-                        onClick={() => copyToClipboard(newChannelCredentials.woocommerce_config!.webhook_token!, 'created-webhook')}
+                        onClick={() =>
+                          copyToClipboard(
+                            newChannelCredentials.woocommerce_config!
+                              .webhook_token!,
+                            'created-webhook'
+                          )
+                        }
                       >
-                        {copiedField === 'created-webhook' ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
+                        {copiedField === 'created-webhook' ? (
+                          <Check className="size-4 text-green-500" />
+                        ) : (
+                          <Copy className="size-4" />
+                        )}
                       </Button>
                     </div>
                     <p className="text-xs text-l-text-3 dark:text-d-text-3 mt-1">
-                      Configure this in WooCommerce → Settings → Advanced → Webhooks
+                      Configure this in WooCommerce → Settings → Advanced →
+                      Webhooks
                     </p>
                   </div>
                 )}
               </div>
 
-              <Button 
+              <Button
                 onClick={() => {
                   setCredentialsDialog(false);
                   setNewChannelCredentials(null);
-                }} 
+                }}
                 className="w-full"
               >
                 Done
@@ -1151,13 +1328,16 @@ export default function SalesChannelsPage() {
             <div className="space-y-4">
               <div className="p-4 bg-green-50 dark:bg-green-900/20 rounded-lg border border-green-200 dark:border-green-800">
                 <p className="text-sm text-green-800 dark:text-green-200">
-                  ✅ New webhook token generated! Configure it in WooCommerce webhooks.
+                  ✅ New webhook token generated! Configure it in WooCommerce
+                  webhooks.
                 </p>
               </div>
 
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">Webhook Token</span>
+                  <span className="text-xs font-medium text-l-text-3 dark:text-d-text-3">
+                    Webhook Token
+                  </span>
                   <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                     <span className="text-sm font-mono flex-1 truncate">
                       {credentials.credentials.webhook_token}
@@ -1166,22 +1346,32 @@ export default function SalesChannelsPage() {
                       variant="ghost"
                       size="icon"
                       className="size-8"
-                      onClick={() => copyToClipboard(credentials.credentials.webhook_token, 'new-webhook')}
+                      onClick={() =>
+                        copyToClipboard(
+                          credentials.credentials.webhook_token,
+                          'new-webhook'
+                        )
+                      }
                     >
-                      {copiedField === 'new-webhook' ? <Check className="size-4 text-green-500" /> : <Copy className="size-4" />}
+                      {copiedField === 'new-webhook' ? (
+                        <Check className="size-4 text-green-500" />
+                      ) : (
+                        <Copy className="size-4" />
+                      )}
                     </Button>
                   </div>
                   <p className="text-xs text-l-text-3 dark:text-d-text-3 mt-1">
-                    Configure this in WooCommerce → Settings → Advanced → Webhooks
+                    Configure this in WooCommerce → Settings → Advanced →
+                    Webhooks
                   </p>
                 </div>
               </div>
 
-              <Button 
+              <Button
                 onClick={() => {
                   setCredentialsDialog(false);
                   setCredentials(null);
-                }} 
+                }}
                 className="w-full"
               >
                 Done
@@ -1197,8 +1387,9 @@ export default function SalesChannelsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Sales Channel</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete <strong>{channelToDelete?.name}</strong>?
-              This action cannot be undone and will permanently remove the channel.
+              Are you sure you want to delete{' '}
+              <strong>{channelToDelete?.name}</strong>? This action cannot be
+              undone and will permanently remove the channel.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -1220,9 +1411,7 @@ export default function SalesChannelsPage() {
             <AlertDialogTitle className="text-green-600 dark:text-green-500">
               ✓ Success!
             </AlertDialogTitle>
-            <AlertDialogDescription>
-              {successMessage}
-            </AlertDialogDescription>
+            <AlertDialogDescription>{successMessage}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogAction onClick={() => setSuccessDialog(false)}>

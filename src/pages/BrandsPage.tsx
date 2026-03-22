@@ -69,6 +69,7 @@ import {
   useDeleteBrand,
 } from '@/hooks/queries';
 import type { Brand } from '@/types';
+import { getMediaUrl } from '@/utils/helpers';
 
 export default function BrandsPage() {
   const { user } = useAuthStore();
@@ -457,7 +458,7 @@ export default function BrandsPage() {
                       <div className="size-10 rounded-full overflow-hidden bg-l-bg-2 dark:bg-d-bg-2 flex items-center justify-center border border-l-border dark:border-d-border flex-shrink-0">
                         {brand.logo ? (
                           <img
-                            src={brand.logo}
+                            src={getMediaUrl(brand.logo) || ''}
                             alt={brand.name}
                             className="size-full object-cover"
                             onError={e => {
@@ -582,7 +583,7 @@ export default function BrandsPage() {
                 <div className="size-16 rounded-full overflow-hidden bg-l-bg-2 dark:bg-d-bg-2 flex items-center justify-center border-2 border-l-border dark:border-d-border">
                   {selectedBrand.logo ? (
                     <img
-                      src={selectedBrand.logo}
+                      src={getMediaUrl(selectedBrand.logo) || ''}
                       alt={selectedBrand.name}
                       className="size-full object-cover"
                       onError={e => {

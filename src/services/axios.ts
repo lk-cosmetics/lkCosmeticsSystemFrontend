@@ -68,6 +68,11 @@ function getCsrfToken(): string | null {
 // Request interceptor - Attach access token and CSRF token
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    // Let the browser set multipart boundary automatically for FormData.
+    if (config.data instanceof FormData && config.headers) {
+      delete config.headers['Content-Type'];
+    }
+
     // Get access token from auth service
     const accessToken = getAccessToken ? getAccessToken() : null;
 

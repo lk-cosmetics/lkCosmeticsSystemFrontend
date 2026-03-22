@@ -21,15 +21,15 @@ interface DialogData<T> {
 interface UseDialogsReturn<T> {
   // Dialog states
   dialogs: DialogState;
-  
+
   // Dialog data
   data: DialogData<T>;
-  
+
   // Dialog actions
   openDialog: (type: DialogType, user?: T, message?: string) => void;
   closeDialog: (type: DialogType) => void;
   closeAllDialogs: () => void;
-  
+
   // Data setters
   setEditFormData: (data: T | null) => void;
   setSuccessMessage: (message: string) => void;
@@ -55,33 +55,39 @@ export function useDialogs<T>(): UseDialogsReturn<T> {
   });
 
   // Open a specific dialog with optional user data
-  const openDialog = useCallback((type: DialogType, user?: T, message?: string) => {
-    setDialogs(prev => ({ ...prev, [type]: true }));
-    
-    // Set appropriate user data based on dialog type
-    switch (type) {
-      case 'view':
-        setData(prev => ({ ...prev, selectedUser: user || null }));
-        break;
-      case 'edit':
-        setData(prev => ({ ...prev, editFormData: user ? { ...user } : null }));
-        break;
-      case 'delete':
-        setData(prev => ({ ...prev, userToDelete: user || null }));
-        break;
-      case 'block':
-        setData(prev => ({ ...prev, userToBlock: user || null }));
-        break;
-      case 'success':
-        setData(prev => ({ ...prev, successMessage: message || '' }));
-        break;
-    }
-  }, []);
+  const openDialog = useCallback(
+    (type: DialogType, user?: T, message?: string) => {
+      setDialogs(prev => ({ ...prev, [type]: true }));
+
+      // Set appropriate user data based on dialog type
+      switch (type) {
+        case 'view':
+          setData(prev => ({ ...prev, selectedUser: user || null }));
+          break;
+        case 'edit':
+          setData(prev => ({
+            ...prev,
+            editFormData: user ? { ...user } : null,
+          }));
+          break;
+        case 'delete':
+          setData(prev => ({ ...prev, userToDelete: user || null }));
+          break;
+        case 'block':
+          setData(prev => ({ ...prev, userToBlock: user || null }));
+          break;
+        case 'success':
+          setData(prev => ({ ...prev, successMessage: message || '' }));
+          break;
+      }
+    },
+    []
+  );
 
   // Close a specific dialog
   const closeDialog = useCallback((type: DialogType) => {
     setDialogs(prev => ({ ...prev, [type]: false }));
-    
+
     // Clear associated data when closing
     switch (type) {
       case 'view':

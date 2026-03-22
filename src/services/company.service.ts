@@ -4,34 +4,77 @@
  */
 
 import { apiClient } from './axios';
-import type { Company, CreateCompanyRequest, PaginatedResponse } from '@/types';
+import type { Company, CompanyListItem, CreateCompanyRequest, PaginatedResponse } from '@/types';
 import { AUTH_CONFIG } from '@/utils/constants';
+
+/**
+ * Normalize a list-level company object (only fields from CompanyListSerializer).
+ */
+function normalizeCompanyListItem(company: Partial<CompanyListItem> & { id: number; name: string }): CompanyListItem {
+  return {
+    id: company.id,
+    name: company.name,
+    abbreviation: company.abbreviation ?? '',
+    logo: typeof company.logo === 'string' ? company.logo : null,
+    city: company.city ?? '',
+    is_active: company.is_active ?? true,
+    brands_count: company.brands_count ?? 0,
+  };
+}
+
+/**
+ * Normalize a full company object (all fields from CompanyDetailSerializer).
+ */
+function normalizeCompany(company: Partial<Company> & { id: number; name: string }): Company {
+  return {
+    ...normalizeCompanyListItem(company),
+    legal_name: company.legal_name ?? company.name,
+    email: company.email ?? '',
+    phone: company.phone ?? '',
+    address: company.address ?? '',
+    matricule_fiscale: company.matricule_fiscale ?? '',
+    registre_commerce: company.registre_commerce ?? '',
+    activity_code: company.activity_code ?? '',
+    bank_name: company.bank_name ?? '',
+    rib: company.rib ?? '',
+    created_at: company.created_at ?? '',
+    updated_at: company.updated_at ?? '',
+  };
+}
 
 class CompanyService {
   /**
-   * Get all companies (handles paginated response)
+   * Get all companies (list endpoint returns lightweight data).
    */
-  async getAllCompanies(): Promise<Company[]> {
-    const response = await apiClient.get<PaginatedResponse<Company>>(AUTH_CONFIG.COMPANY_ENDPOINT);
-    // Handle paginated response - extract results array
+  async getAllCompanies(): Promise<CompanyListItem[]> {
+    const response = await apiClient.get<PaginatedResponse<CompanyListItem>>(
+      AUTH_CONFIG.COMPANY_ENDPOINT
+    );
     if (response.data && 'results' in response.data) {
-      return response.data.results;
+      return response.data.results.map((c) =>
+        normalizeCompanyListItem(c as Partial<CompanyListItem> & { id: number; name: string })
+      );
     }
-    // Fallback for non-paginated response
-    return response.data as unknown as Company[];
+    return (response.data as unknown as Array<Partial<CompanyListItem> & { id: number; name: string }>).map(
+      (c) => normalizeCompanyListItem(c)
+    );
   }
 
   /**
-   * Get active companies only (handles paginated response)
+   * Get active companies only (list endpoint returns lightweight data).
    */
-  async getActiveCompanies(): Promise<Company[]> {
-    const response = await apiClient.get<PaginatedResponse<Company>>(
+  async getActiveCompanies(): Promise<CompanyListItem[]> {
+    const response = await apiClient.get<PaginatedResponse<CompanyListItem>>(
       `${AUTH_CONFIG.COMPANY_ENDPOINT}active/`
     );
     if (response.data && 'results' in response.data) {
-      return response.data.results;
+      return response.data.results.map((c) =>
+        normalizeCompanyListItem(c as Partial<CompanyListItem> & { id: number; name: string })
+      );
     }
-    return response.data as unknown as Company[];
+    return (response.data as unknown as Array<Partial<CompanyListItem> & { id: number; name: string }>).map(
+      (c) => normalizeCompanyListItem(c)
+    );
   }
 
   /**
@@ -41,7 +84,7 @@ class CompanyService {
     const response = await apiClient.get<Company>(
       `${AUTH_CONFIG.COMPANY_ENDPOINT}${id}/`
     );
-    return response.data;
+    return normalizeCompany(response.data as Partial<Company> & { id: number; name: string });
   }
 
   /**
@@ -65,6 +108,9 @@ class CompanyService {
       if (value !== undefined && value !== null) {
         if (key === 'logo' && value instanceof File) {
           formData.append(key, value);
+        } else if (key === 'logo') {
+          // Ignore non-file logo payloads (e.g. existing URL strings).
+          return;
         } else if (typeof value === 'boolean') {
           formData.append(key, value.toString());
         } else {
@@ -75,14 +121,9 @@ class CompanyService {
 
     const response = await apiClient.post<Company>(
       AUTH_CONFIG.COMPANY_ENDPOINT,
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
+      formData
     );
-    return response.data;
+    return normalizeCompany(response.data as Partial<Company> & { id: number; name: string });
   }
 
   /**
@@ -98,6 +139,9 @@ class CompanyService {
       if (value !== undefined && value !== null) {
         if (key === 'logo' && value instanceof File) {
           formData.append(key, value);
+        } else if (key === 'logo') {
+          // Ignore non-file logo payloads (e.g. existing URL strings).
+          return;
         } else if (typeof value === 'boolean') {
           formData.append(key, value.toString());
         } else {
@@ -108,14 +152,9 @@ class CompanyService {
 
     const response = await apiClient.put<Company>(
       `${AUTH_CONFIG.COMPANY_ENDPOINT}${id}/`,
-      formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
+      formData
     );
-    return response.data;
+    return normalizeCompany(response.data as Partial<Company> & { id: number; name: string });
   }
 
   /**
@@ -136,6 +175,9 @@ class CompanyService {
         if (value !== undefined && value !== null) {
           if (key === 'logo' && value instanceof File) {
             formData.append(key, value);
+          } else if (key === 'logo') {
+            // Ignore non-file logo payloads (e.g. existing URL strings).
+            return;
           } else if (typeof value === 'boolean') {
             formData.append(key, value.toString());
           } else {
@@ -146,14 +188,9 @@ class CompanyService {
 
       const response = await apiClient.patch<Company>(
         `${AUTH_CONFIG.COMPANY_ENDPOINT}${id}/`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        }
+        formData
       );
-      return response.data;
+      return normalizeCompany(response.data as Partial<Company> & { id: number; name: string });
     } else {
       // Use JSON for non-file updates
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -162,7 +199,7 @@ class CompanyService {
         `${AUTH_CONFIG.COMPANY_ENDPOINT}${id}/`,
         jsonData
       );
-      return response.data;
+      return normalizeCompany(response.data as Partial<Company> & { id: number; name: string });
     }
   }
 

@@ -6,8 +6,7 @@ import type { CreateSalesChannelRequest } from '@/types';
 export const salesChannelsKeys = {
   all: ['salesChannels'] as const,
   lists: () => [...salesChannelsKeys.all, 'list'] as const,
-  list: (filters?: Record<string, unknown>) =>
-    [...salesChannelsKeys.lists(), filters] as const,
+  list: (filters?: Record<string, unknown>) => [...salesChannelsKeys.lists(), filters] as const,
   details: () => [...salesChannelsKeys.all, 'detail'] as const,
   detail: (id: number) => [...salesChannelsKeys.details(), id] as const,
 };
@@ -49,12 +48,10 @@ export function useCreateSalesChannel() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: CreateSalesChannelRequest) =>
+    mutationFn: (data: CreateSalesChannelRequest) => 
       salesChannelService.createChannel(data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: salesChannelsKeys.lists(),
-      });
+      queryClient.invalidateQueries({ queryKey: salesChannelsKeys.lists() });
     },
   });
 }
@@ -66,20 +63,11 @@ export function useUpdateSalesChannel() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      id,
-      data,
-    }: {
-      id: number;
-      data: CreateSalesChannelRequest;
-    }) => salesChannelService.updateChannel(id, data),
+    mutationFn: ({ id, data }: { id: number; data: CreateSalesChannelRequest }) =>
+      salesChannelService.updateChannel(id, data),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: salesChannelsKeys.detail(variables.id),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: salesChannelsKeys.lists(),
-      });
+      queryClient.invalidateQueries({ queryKey: salesChannelsKeys.detail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: salesChannelsKeys.lists() });
     },
   });
 }
@@ -93,9 +81,7 @@ export function useDeleteSalesChannel() {
   return useMutation({
     mutationFn: (id: number) => salesChannelService.deleteChannel(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: salesChannelsKeys.lists(),
-      });
+      queryClient.invalidateQueries({ queryKey: salesChannelsKeys.lists() });
     },
   });
 }

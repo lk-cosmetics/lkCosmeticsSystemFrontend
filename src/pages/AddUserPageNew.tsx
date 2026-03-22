@@ -52,7 +52,7 @@ import { userService } from '@/services/user.service';
 import { roleService } from '@/services/role.service';
 import { companyService } from '@/services/company.service';
 import { brandService } from '@/services/brand.service';
-import type { Role, Company, Brand, EducationLevel } from '@/types';
+import type { Role, CompanyListItem, Brand, EducationLevel } from '@/types';
 import { EDUCATION_LEVELS } from '@/types';
 import { toast } from 'sonner';
 
@@ -130,7 +130,7 @@ export default function AddUserPage() {
 
   // Data states
   const [roles, setRoles] = useState<Role[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
+  const [companies, setCompanies] = useState<CompanyListItem[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [filteredBrands, setFilteredBrands] = useState<Brand[]>([]);
   const [selectedBrands, setSelectedBrands] = useState<number[]>([]);

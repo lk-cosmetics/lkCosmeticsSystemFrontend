@@ -4,7 +4,12 @@
  */
 
 import { apiClient } from './axios';
-import type { Brand, CreateBrandRequest, PaginatedResponse, SalesChannel } from '@/types';
+import type {
+  Brand,
+  CreateBrandRequest,
+  PaginatedResponse,
+  SalesChannel,
+} from '@/types';
 import { AUTH_CONFIG } from '@/utils/constants';
 
 interface BrandQueryParams {
@@ -72,22 +77,18 @@ class BrandService {
         formData.append('logo', data.logo);
       }
 
+      // Content-Type is auto-set by axios interceptor for FormData
       const response = await apiClient.post<Brand>(
         AUTH_CONFIG.BRAND_ENDPOINT,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        }
+        formData
       );
       return response.data;
     } else {
       // Use JSON for non-file requests
-      const response = await apiClient.post<Brand>(
-        AUTH_CONFIG.BRAND_ENDPOINT,
-        { company: data.company, name: data.name }
-      );
+      const response = await apiClient.post<Brand>(AUTH_CONFIG.BRAND_ENDPOINT, {
+        company: data.company,
+        name: data.name,
+      });
       return response.data;
     }
   }
@@ -106,14 +107,10 @@ class BrandService {
         formData.append('logo', data.logo);
       }
 
+      // Content-Type is auto-set by axios interceptor for FormData
       const response = await apiClient.put<Brand>(
         `${AUTH_CONFIG.BRAND_ENDPOINT}${id}/`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        }
+        formData
       );
       return response.data;
     } else {
@@ -146,14 +143,10 @@ class BrandService {
         formData.append('logo', data.logo);
       }
 
+      // Content-Type is auto-set by axios interceptor for FormData
       const response = await apiClient.patch<Brand>(
         `${AUTH_CONFIG.BRAND_ENDPOINT}${id}/`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data',
-          },
-        }
+        formData
       );
       return response.data;
     } else {

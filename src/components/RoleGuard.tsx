@@ -57,7 +57,7 @@ export default function RoleGuard({
   // Check multiple roles
   if (requiredRoles && requiredRoles.length > 0) {
     const hasAccess = requireAll
-      ? requiredRoles.every((role) => hasRole(user, role))
+      ? requiredRoles.every(role => hasRole(user, role))
       : hasAnyRole(user, requiredRoles);
 
     if (!hasAccess) {
@@ -68,8 +68,8 @@ export default function RoleGuard({
               <Ban className="size-16 mx-auto text-red-500 mb-4" />
               <h2 className="text-2xl font-bold mb-2">Access Denied</h2>
               <p className="text-l-text-2 dark:text-d-text-2 mb-4">
-                You need {requireAll ? 'all of' : 'one of'} these roles to access this page:{' '}
-                <strong>{requiredRoles.join(', ')}</strong>
+                You need {requireAll ? 'all of' : 'one of'} these roles to
+                access this page: <strong>{requiredRoles.join(', ')}</strong>
               </p>
               <Button onClick={() => window.history.back()}>Go Back</Button>
             </Card>

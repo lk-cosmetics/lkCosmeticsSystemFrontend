@@ -35,39 +35,27 @@ function extractFieldErrors(data: FieldErrors): FieldErrors {
   const fieldErrors: FieldErrors = {};
   if (data.old_password) fieldErrors.old_password = data.old_password;
   if (data.new_password) fieldErrors.new_password = data.new_password;
-  if (data.new_password_confirm)
-    fieldErrors.new_password_confirm = data.new_password_confirm;
+  if (data.new_password_confirm) fieldErrors.new_password_confirm = data.new_password_confirm;
   return fieldErrors;
 }
 
 // Helper to parse API errors
 function parseApiError(error: unknown): ParsedError {
-  const defaultError: ParsedError = {
-    message: 'Failed to change password',
-    fieldErrors: {},
-  };
-
-  if (!(error instanceof AxiosError)) {
-    return error instanceof Error
+  const defaultError: ParsedError = { message: 'Failed to change password', fieldErrors: {} };
+  
+  if (!(error instanceof AxiosError) || !error.response?.data) {
+    return error instanceof Error 
       ? { message: error.message, fieldErrors: {} }
       : defaultError;
   }
 
-  if (!error.response) {
-    return error instanceof Error
-      ? { message: error.message, fieldErrors: {} }
-      : defaultError;
-  }
-
-  const status: number = error.response.status ?? 0;
-  const apiData: FieldErrors = (error.response.data ?? {}) as FieldErrors;
+  const { status, data } = error.response;
+  const apiData = data as FieldErrors;
 
   // Handle rate limiting (429)
   if (status === 429) {
     return {
-      message:
-        apiData.detail ||
-        'Too many password change attempts. Please try again in 15 minutes.',
+      message: apiData.detail || 'Too many password change attempts. Please try again in 15 minutes.',
       fieldErrors: {},
     };
   }
@@ -75,9 +63,7 @@ function parseApiError(error: unknown): ParsedError {
   // Handle permission denied (403)
   if (status === 403) {
     return {
-      message:
-        apiData.detail ||
-        "You do not have permission to change this user's password.",
+      message: apiData.detail || 'You do not have permission to change this user\'s password.',
       fieldErrors: {},
     };
   }
@@ -86,11 +72,7 @@ function parseApiError(error: unknown): ParsedError {
   if (status === 400) {
     const fieldErrors = extractFieldErrors(apiData);
     const hasFieldErrors = Object.keys(fieldErrors).length > 0;
-    const message =
-      apiData.detail ||
-      (hasFieldErrors
-        ? ''
-        : 'Password change failed. Please check your input.');
+    const message = apiData.detail || (hasFieldErrors ? '' : 'Password change failed. Please check your input.');
     return { message, fieldErrors };
   }
 
@@ -98,18 +80,16 @@ function parseApiError(error: unknown): ParsedError {
 }
 
 // Admin Reset Password Schema (no old password required)
-const adminResetSchema = z
-  .object({
-    new_password: z
-      .string()
-      .min(8, 'Password must be at least 8 characters')
-      .regex(/^(?!\d+$)/, 'Password cannot be entirely numeric'),
-    new_password_confirm: z.string(),
-  })
-  .refine(data => data.new_password === data.new_password_confirm, {
-    message: "Passwords don't match",
-    path: ['new_password_confirm'],
-  });
+const adminResetSchema = z.object({
+  new_password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/^(?!\d+$)/, 'Password cannot be entirely numeric'),
+  new_password_confirm: z.string(),
+}).refine((data) => data.new_password === data.new_password_confirm, {
+  message: "Passwords don't match",
+  path: ['new_password_confirm'],
+});
 
 type AdminResetData = z.infer<typeof adminResetSchema>;
 
@@ -149,7 +129,7 @@ function AdminResetForm({
   const onSubmit = async (data: AdminResetData) => {
     setGeneralError(null);
     setFieldErrors({});
-
+    
     try {
       console.log('Admin Reset Password Request:', { userId, data });
       await userService.adminResetPassword(userId, {
@@ -163,13 +143,8 @@ function AdminResetForm({
       console.error('Admin Reset Password Error:', err);
       // Log the full response for debugging
       if (err && typeof err === 'object' && 'response' in err) {
-        const axiosErr = err as {
-          response?: { status?: number; data?: unknown };
-        };
-        console.error(
-          'API Error Response:',
-          JSON.stringify(axiosErr.response?.data, null, 2)
-        );
+        const axiosErr = err as { response?: { status?: number; data?: unknown } };
+        console.error('API Error Response:', JSON.stringify(axiosErr.response?.data, null, 2));
       }
       const { message, fieldErrors: apiFieldErrors } = parseApiError(err);
       setGeneralError(message);
@@ -178,11 +153,8 @@ function AdminResetForm({
   };
 
   // Combine client and server validation errors
-  const newPasswordError =
-    errors.new_password?.message || fieldErrors.new_password?.[0];
-  const confirmPasswordError =
-    errors.new_password_confirm?.message ||
-    fieldErrors.new_password_confirm?.[0];
+  const newPasswordError = errors.new_password?.message || fieldErrors.new_password?.[0];
+  const confirmPasswordError = errors.new_password_confirm?.message || fieldErrors.new_password_confirm?.[0];
 
   return (
     <form onSubmit={handleSubmit(onSubmit)}>
@@ -190,9 +162,7 @@ function AdminResetForm({
         {generalError && (
           <div className="flex items-start gap-2 rounded-md bg-red-50 p-3 dark:bg-red-900/20">
             <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-600 dark:text-red-400" />
-            <p className="text-sm text-red-800 dark:text-red-200">
-              {generalError}
-            </p>
+            <p className="text-sm text-red-800 dark:text-red-200">{generalError}</p>
           </div>
         )}
 
@@ -214,11 +184,7 @@ function AdminResetForm({
               className="absolute right-0 top-0 h-full px-3"
               onClick={() => setShowNewPassword(!showNewPassword)}
             >
-              {showNewPassword ? (
-                <EyeOff className="size-4" />
-              ) : (
-                <Eye className="size-4" />
-              )}
+              {showNewPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </Button>
           </div>
           {newPasswordError && (
@@ -227,7 +193,7 @@ function AdminResetForm({
           {/* Show all password validation errors from API */}
           {fieldErrors.new_password && fieldErrors.new_password.length > 1 && (
             <ul className="list-inside list-disc text-sm text-red-500">
-              {fieldErrors.new_password.slice(1).map(err => (
+              {fieldErrors.new_password.slice(1).map((err) => (
                 <li key={err}>{err}</li>
               ))}
             </ul>
@@ -255,11 +221,7 @@ function AdminResetForm({
               className="absolute right-0 top-0 h-full px-3"
               onClick={() => setShowConfirmPassword(!showConfirmPassword)}
             >
-              {showConfirmPassword ? (
-                <EyeOff className="size-4" />
-              ) : (
-                <Eye className="size-4" />
-              )}
+              {showConfirmPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </Button>
           </div>
           {confirmPasswordError && (
@@ -269,12 +231,7 @@ function AdminResetForm({
       </div>
 
       <DialogFooter>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onClose}
-          disabled={isSubmitting}
-        >
+        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
           Cancel
         </Button>
         <Button type="submit" disabled={isSubmitting}>
@@ -286,19 +243,17 @@ function AdminResetForm({
 }
 
 // User Change Password Schema (old password required)
-const userChangeSchema = z
-  .object({
-    old_password: z.string().min(1, 'Current password is required'),
-    new_password: z
-      .string()
-      .min(8, 'Password must be at least 8 characters')
-      .regex(/^(?!\d+$)/, 'Password cannot be entirely numeric'),
-    new_password_confirm: z.string(),
-  })
-  .refine(data => data.new_password === data.new_password_confirm, {
-    message: "Passwords don't match",
-    path: ['new_password_confirm'],
-  });
+const userChangeSchema = z.object({
+  old_password: z.string().min(1, 'Current password is required'),
+  new_password: z
+    .string()
+    .min(8, 'Password must be at least 8 characters')
+    .regex(/^(?!\d+$)/, 'Password cannot be entirely numeric'),
+  new_password_confirm: z.string(),
+}).refine((data) => data.new_password === data.new_password_confirm, {
+  message: "Passwords don't match",
+  path: ['new_password_confirm'],
+});
 
 type UserChangeData = z.infer<typeof userChangeSchema>;
 
@@ -330,7 +285,7 @@ function UserChangeForm({
   const onSubmit = async (data: UserChangeData) => {
     setGeneralError(null);
     setFieldErrors({});
-
+    
     try {
       await userService.changePassword(userId, {
         old_password: data.old_password,
@@ -348,13 +303,9 @@ function UserChangeForm({
   };
 
   // Combine client and server validation errors
-  const oldPasswordError =
-    errors.old_password?.message || fieldErrors.old_password?.[0];
-  const newPasswordError =
-    errors.new_password?.message || fieldErrors.new_password?.[0];
-  const confirmPasswordError =
-    errors.new_password_confirm?.message ||
-    fieldErrors.new_password_confirm?.[0];
+  const oldPasswordError = errors.old_password?.message || fieldErrors.old_password?.[0];
+  const newPasswordError = errors.new_password?.message || fieldErrors.new_password?.[0];
+  const confirmPasswordError = errors.new_password_confirm?.message || fieldErrors.new_password_confirm?.[0];
 
   return (
     <form onSubmit={handleSubmit(onSubmit)}>
@@ -362,9 +313,7 @@ function UserChangeForm({
         {generalError && (
           <div className="flex items-start gap-2 rounded-md bg-red-50 p-3 dark:bg-red-900/20">
             <AlertCircle className="mt-0.5 size-4 shrink-0 text-red-600 dark:text-red-400" />
-            <p className="text-sm text-red-800 dark:text-red-200">
-              {generalError}
-            </p>
+            <p className="text-sm text-red-800 dark:text-red-200">{generalError}</p>
           </div>
         )}
 
@@ -386,11 +335,7 @@ function UserChangeForm({
               className="absolute right-0 top-0 h-full px-3"
               onClick={() => setShowOldPassword(!showOldPassword)}
             >
-              {showOldPassword ? (
-                <EyeOff className="size-4" />
-              ) : (
-                <Eye className="size-4" />
-              )}
+              {showOldPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </Button>
           </div>
           {oldPasswordError && (
@@ -416,11 +361,7 @@ function UserChangeForm({
               className="absolute right-0 top-0 h-full px-3"
               onClick={() => setShowNewPassword(!showNewPassword)}
             >
-              {showNewPassword ? (
-                <EyeOff className="size-4" />
-              ) : (
-                <Eye className="size-4" />
-              )}
+              {showNewPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </Button>
           </div>
           {newPasswordError && (
@@ -429,7 +370,7 @@ function UserChangeForm({
           {/* Show all password validation errors from API */}
           {fieldErrors.new_password && fieldErrors.new_password.length > 1 && (
             <ul className="list-inside list-disc text-sm text-red-500">
-              {fieldErrors.new_password.slice(1).map(err => (
+              {fieldErrors.new_password.slice(1).map((err) => (
                 <li key={err}>{err}</li>
               ))}
             </ul>
@@ -457,11 +398,7 @@ function UserChangeForm({
               className="absolute right-0 top-0 h-full px-3"
               onClick={() => setShowConfirmPassword(!showConfirmPassword)}
             >
-              {showConfirmPassword ? (
-                <EyeOff className="size-4" />
-              ) : (
-                <Eye className="size-4" />
-              )}
+              {showConfirmPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
             </Button>
           </div>
           {confirmPasswordError && (
@@ -471,12 +408,7 @@ function UserChangeForm({
       </div>
 
       <DialogFooter>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onClose}
-          disabled={isSubmitting}
-        >
+        <Button type="button" variant="outline" onClick={onClose} disabled={isSubmitting}>
           Cancel
         </Button>
         <Button type="submit" disabled={isSubmitting}>
@@ -515,17 +447,9 @@ export function ChangePasswordModal({
         </DialogHeader>
 
         {isAdminReset ? (
-          <AdminResetForm
-            userId={userId}
-            onSuccess={onSuccess}
-            onClose={handleClose}
-          />
+          <AdminResetForm userId={userId} onSuccess={onSuccess} onClose={handleClose} />
         ) : (
-          <UserChangeForm
-            userId={userId}
-            onSuccess={onSuccess}
-            onClose={handleClose}
-          />
+          <UserChangeForm userId={userId} onSuccess={onSuccess} onClose={handleClose} />
         )}
       </DialogContent>
     </Dialog>

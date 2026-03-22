@@ -2,18 +2,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useState, useRef } from 'react';
-import {
-  User,
-  Mail,
-  Lock,
-  Phone,
-  Shield,
-  Upload,
-  FileText,
-  Download,
-  Users,
-  Camera,
-} from 'lucide-react';
+import { User, Mail, Lock, Phone, Shield, Upload, FileText, Download, Users, Camera } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -40,20 +29,18 @@ import {
 } from '@/components/ui/alert-dialog';
 
 // Zod validation schema
-const userSchema = z
-  .object({
-    firstName: z.string().min(2, 'First name must be at least 2 characters'),
-    lastName: z.string().min(2, 'Last name must be at least 2 characters'),
-    email: z.string().email(),
-    phone: z.string().min(8, 'Phone number must be at least 10 digits'),
-    password: z.string().min(8, 'Password must be at least 8 characters'),
-    confirmPassword: z.string(),
-    role: z.enum(['admin', 'user', 'manager']),
-  })
-  .refine(data => data.password === data.confirmPassword, {
-    message: "Passwords don't match",
-    path: ['confirmPassword'],
-  });
+const userSchema = z.object({
+  firstName: z.string().min(2, 'First name must be at least 2 characters'),
+  lastName: z.string().min(2, 'Last name must be at least 2 characters'),
+  email: z.string().email(),
+  phone: z.string().min(8, 'Phone number must be at least 10 digits'),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  confirmPassword: z.string(),
+  role: z.enum(['admin', 'user', 'manager']),
+}).refine((data) => data.password === data.confirmPassword, {
+  message: "Passwords don't match",
+  path: ['confirmPassword'],
+});
 
 type UserFormData = z.infer<typeof userSchema>;
 
@@ -70,9 +57,7 @@ interface ImportedUser {
 export default function AddUserPage() {
   const [importedUsers, setImportedUsers] = useState<ImportedUser[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState<string>(
-    'https://api.dicebear.com/7.x/avataaars/svg?seed=default'
-  );
+  const [avatarUrl, setAvatarUrl] = useState<string>('https://api.dicebear.com/7.x/avataaars/svg?seed=default');
   const [showConfirmDialog, setShowConfirmDialog] = useState(false);
   const [showSuccessDialog, setShowSuccessDialog] = useState(false);
   const [pendingData, setPendingData] = useState<UserFormData | null>(null);
@@ -93,7 +78,7 @@ export default function AddUserPage() {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onload = e => {
+      reader.onload = (e) => {
         setAvatarUrl(e.target?.result as string);
       };
       reader.readAsDataURL(file);
@@ -107,12 +92,12 @@ export default function AddUserPage() {
 
   const confirmAddUser = async () => {
     if (!pendingData) return;
-
+    
     try {
       console.log('User data:', { ...pendingData, avatar: avatarUrl });
       // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      
       setShowConfirmDialog(false);
       setShowSuccessDialog(true);
       reset();
@@ -127,11 +112,11 @@ export default function AddUserPage() {
   const parseCSV = (text: string): ImportedUser[] => {
     const lines = text.split('\n').filter(line => line.trim());
     const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-
+    
     return lines.slice(1).map(line => {
       const values = line.split(',').map(v => v.trim());
-      const user: Record<string, string> = {};
-
+      const user: any = {};
+      
       headers.forEach((header, index) => {
         user[header] = values[index] || '';
       });
@@ -152,7 +137,7 @@ export default function AddUserPage() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = e => {
+    reader.onload = (e) => {
       try {
         const text = e.target?.result as string;
         const users = parseCSV(text);
@@ -166,30 +151,22 @@ export default function AddUserPage() {
 
   const processImportedUsers = async () => {
     setIsProcessing(true);
-
+    
     const updatedUsers = await Promise.all(
-      importedUsers.map(async user => {
+      importedUsers.map(async (user) => {
         try {
           // Validate user data
           if (!user.email || !user.firstName || !user.lastName) {
-            return {
-              ...user,
-              status: 'error' as const,
-              error: 'Missing required fields',
-            };
+            return { ...user, status: 'error' as const, error: 'Missing required fields' };
           }
 
           // Simulate API call
-          await new Promise(resolve => setTimeout(resolve, 500));
+          await new Promise((resolve) => setTimeout(resolve, 500));
           console.log('Adding user:', user);
-
+          
           return { ...user, status: 'success' as const };
         } catch (error) {
-          return {
-            ...user,
-            status: 'error' as const,
-            error: 'Failed to add user',
-          };
+          return { ...user, status: 'error' as const, error: 'Failed to add user' };
         }
       })
     );
@@ -199,8 +176,7 @@ export default function AddUserPage() {
   };
 
   const downloadTemplate = () => {
-    const template =
-      'firstName,lastName,email,phone,role\nJohn,Doe,john@example.com,1234567890,user\nJane,Smith,jane@example.com,0987654321,manager';
+    const template = 'firstName,lastName,email,phone,role\nJohn,Doe,john@example.com,1234567890,user\nJane,Smith,jane@example.com,0987654321,manager';
     const blob = new Blob([template], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -243,9 +219,7 @@ export default function AddUserPage() {
               <div className="flex flex-col items-center gap-4 pb-6 border-b">
                 <Avatar className="size-24">
                   <AvatarImage src={avatarUrl} alt="User avatar" />
-                  <AvatarFallback>
-                    <User className="size-12" />
-                  </AvatarFallback>
+                  <AvatarFallback><User className="size-12" /></AvatarFallback>
                 </Avatar>
                 <input
                   ref={avatarInputRef}
@@ -263,9 +237,7 @@ export default function AddUserPage() {
                   <Camera className="size-4" />
                   Upload Avatar
                 </Button>
-                <p className="text-xs text-l-text-3 dark:text-d-text-3">
-                  Default avatar will be used if none uploaded
-                </p>
+                <p className="text-xs text-l-text-3 dark:text-d-text-3">Default avatar will be used if none uploaded</p>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -281,9 +253,7 @@ export default function AddUserPage() {
                     />
                   </div>
                   {errors.firstName && (
-                    <p className="text-sm text-red-500">
-                      {errors.firstName.message}
-                    </p>
+                    <p className="text-sm text-red-500">{errors.firstName.message}</p>
                   )}
                 </div>
 
@@ -299,9 +269,7 @@ export default function AddUserPage() {
                     />
                   </div>
                   {errors.lastName && (
-                    <p className="text-sm text-red-500">
-                      {errors.lastName.message}
-                    </p>
+                    <p className="text-sm text-red-500">{errors.lastName.message}</p>
                   )}
                 </div>
               </div>
@@ -344,11 +312,7 @@ export default function AddUserPage() {
                 <Label htmlFor="role">Role</Label>
                 <div className="relative">
                   <Shield className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-l-text-3 dark:text-d-text-3 z-10" />
-                  <Select
-                    onValueChange={value =>
-                      setValue('role', value as 'admin' | 'user' | 'manager')
-                    }
-                  >
+                  <Select onValueChange={(value) => setValue('role', value as 'admin' | 'user' | 'manager')}>
                     <SelectTrigger className="pl-10">
                       <SelectValue placeholder="Select a role" />
                     </SelectTrigger>
@@ -378,9 +342,7 @@ export default function AddUserPage() {
                     />
                   </div>
                   {errors.password && (
-                    <p className="text-sm text-red-500">
-                      {errors.password.message}
-                    </p>
+                    <p className="text-sm text-red-500">{errors.password.message}</p>
                   )}
                 </div>
 
@@ -397,27 +359,16 @@ export default function AddUserPage() {
                     />
                   </div>
                   {errors.confirmPassword && (
-                    <p className="text-sm text-red-500">
-                      {errors.confirmPassword.message}
-                    </p>
+                    <p className="text-sm text-red-500">{errors.confirmPassword.message}</p>
                   )}
                 </div>
               </div>
 
               <div className="flex gap-4 pt-4">
-                <Button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex-1"
-                >
+                <Button type="submit" disabled={isSubmitting} className="flex-1">
                   {isSubmitting ? 'Adding User...' : 'Add User'}
                 </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => reset()}
-                  className="flex-1"
-                >
+                <Button type="button" variant="outline" onClick={() => reset()} className="flex-1">
                   Reset Form
                 </Button>
               </div>
@@ -431,19 +382,12 @@ export default function AddUserPage() {
             <div className="space-y-6">
               <div className="flex items-center justify-between border-b pb-4">
                 <div>
-                  <h3 className="text-lg font-semibold">
-                    Import Users from CSV
-                  </h3>
+                  <h3 className="text-lg font-semibold">Import Users from CSV</h3>
                   <p className="text-sm text-l-text-2 dark:text-d-text-2 mt-1">
-                    Upload a CSV file with user information to add multiple
-                    users at once
+                    Upload a CSV file with user information to add multiple users at once
                   </p>
                 </div>
-                <Button
-                  variant="outline"
-                  onClick={downloadTemplate}
-                  className="gap-2"
-                >
+                <Button variant="outline" onClick={downloadTemplate} className="gap-2">
                   <Download className="size-4" />
                   Download Template
                 </Button>
@@ -463,10 +407,7 @@ export default function AddUserPage() {
                   Click to select or drag and drop your CSV file here
                 </p>
                 <div className="flex justify-center">
-                  <Button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="gap-2"
-                  >
+                  <Button onClick={() => fileInputRef.current?.click()} className="gap-2">
                     <Upload className="size-4" />
                     Select File
                   </Button>
@@ -494,21 +435,11 @@ export default function AddUserPage() {
                       <table className="w-full">
                         <thead className="bg-l-bg-2 dark:bg-d-bg-2 sticky top-0">
                           <tr>
-                            <th className="text-left p-3 text-sm font-medium">
-                              Name
-                            </th>
-                            <th className="text-left p-3 text-sm font-medium">
-                              Email
-                            </th>
-                            <th className="text-left p-3 text-sm font-medium">
-                              Phone
-                            </th>
-                            <th className="text-left p-3 text-sm font-medium">
-                              Role
-                            </th>
-                            <th className="text-left p-3 text-sm font-medium">
-                              Status
-                            </th>
+                            <th className="text-left p-3 text-sm font-medium">Name</th>
+                            <th className="text-left p-3 text-sm font-medium">Email</th>
+                            <th className="text-left p-3 text-sm font-medium">Phone</th>
+                            <th className="text-left p-3 text-sm font-medium">Role</th>
+                            <th className="text-left p-3 text-sm font-medium">Status</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -519,25 +450,21 @@ export default function AddUserPage() {
                               </td>
                               <td className="p-3 text-sm">{user.email}</td>
                               <td className="p-3 text-sm">{user.phone}</td>
-                              <td className="p-3 text-sm capitalize">
-                                {user.role}
-                              </td>
+                              <td className="p-3 text-sm capitalize">{user.role}</td>
                               <td className="p-3">
                                 <Badge
                                   variant={
                                     user.status === 'success'
                                       ? 'default'
                                       : user.status === 'error'
-                                        ? 'destructive'
-                                        : 'secondary'
+                                      ? 'destructive'
+                                      : 'secondary'
                                   }
                                 >
                                   {user.status}
                                 </Badge>
                                 {user.error && (
-                                  <p className="text-xs text-red-500 mt-1">
-                                    {user.error}
-                                  </p>
+                                  <p className="text-xs text-red-500 mt-1">{user.error}</p>
                                 )}
                               </td>
                             </tr>
@@ -559,12 +486,9 @@ export default function AddUserPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Confirm Add User</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to add this user? This will create a new
-              account for{' '}
-              <strong>
-                {pendingData?.firstName} {pendingData?.lastName}
-              </strong>{' '}
-              with email <strong>{pendingData?.email}</strong>.
+              Are you sure you want to add this user? This will create a new account for{' '}
+              <strong>{pendingData?.firstName} {pendingData?.lastName}</strong> with email{' '}
+              <strong>{pendingData?.email}</strong>.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -584,8 +508,7 @@ export default function AddUserPage() {
               ✓ User Added Successfully!
             </AlertDialogTitle>
             <AlertDialogDescription>
-              The user account has been created successfully. They can now log
-              in with their credentials.
+              The user account has been created successfully. They can now log in with their credentials.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

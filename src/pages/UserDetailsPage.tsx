@@ -36,6 +36,7 @@ import { userService } from '@/services/user.service';
 import type { UserDetails } from '@/types';
 import { EDUCATION_LEVELS } from '@/types';
 import { toast } from 'sonner';
+import { getMediaUrl } from '@/utils/helpers';
 
 export default function UserDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -178,7 +179,7 @@ export default function UserDetailsPage() {
             <div className="flex flex-col items-center text-center">
               <Avatar className="size-24">
                 <AvatarImage
-                  src={user.profile?.avatar || undefined}
+                  src={getMediaUrl(user.profile?.avatar) || undefined}
                   alt={user.full_name}
                 />
                 <AvatarFallback className="text-2xl">

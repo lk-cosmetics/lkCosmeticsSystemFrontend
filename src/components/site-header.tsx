@@ -1,9 +1,9 @@
 import { Bell } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { SidebarTrigger } from "@/components/ui/sidebar"
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Separator } from '@/components/ui/separator';
+import { SidebarTrigger } from '@/components/ui/sidebar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,7 +11,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+} from '@/components/ui/dropdown-menu';
 import notificationsData from '@/data/notifications.json';
 
 export function SiteHeader() {
@@ -36,8 +36,8 @@ export function SiteHeader() {
               <Button variant="ghost" size="icon" className="relative">
                 <Bell className="size-5" />
                 {unreadCount > 0 && (
-                  <Badge 
-                    variant="destructive" 
+                  <Badge
+                    variant="destructive"
                     className="absolute -top-1 -right-1 size-5 flex items-center justify-center p-0 text-xs"
                   >
                     {unreadCount}
@@ -46,7 +46,10 @@ export function SiteHeader() {
                 <span className="sr-only">Notifications</span>
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-80 max-h-[400px] overflow-hidden flex flex-col">
+            <DropdownMenuContent
+              align="end"
+              className="w-80 max-h-[400px] overflow-hidden flex flex-col"
+            >
               <DropdownMenuLabel className="flex items-center justify-between border-b bg-l-bg-1 dark:bg-d-bg-1">
                 <span>Notifications</span>
                 {unreadCount > 0 && (
@@ -56,50 +59,53 @@ export function SiteHeader() {
                 )}
               </DropdownMenuLabel>
               <div className="overflow-y-auto flex-1">
-              {notifications.length > 0 ? (
-                <>
-                  {notifications.map((notification) => (
-                    <DropdownMenuItem 
-                      key={notification.id}
-                      className={`flex flex-col items-start gap-1 p-3 cursor-pointer ${
-                        notification.read ? '' : 'bg-l-bg-2 dark:bg-d-bg-2'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 w-full">
-                        <div className="flex-1">
-                          <p className="text-sm font-medium">{notification.title}</p>
-                          <p className="text-xs text-l-text-3 dark:text-d-text-3">
-                            {notification.message}
-                          </p>
+                {notifications.length > 0 ? (
+                  <>
+                    {notifications.map(notification => (
+                      <DropdownMenuItem
+                        key={notification.id}
+                        className={`flex flex-col items-start gap-1 p-3 cursor-pointer ${
+                          notification.read ? '' : 'bg-l-bg-2 dark:bg-d-bg-2'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2 w-full">
+                          <div className="flex-1">
+                            <p className="text-sm font-medium">
+                              {notification.title}
+                            </p>
+                            <p className="text-xs text-l-text-3 dark:text-d-text-3">
+                              {notification.message}
+                            </p>
+                          </div>
+                          {!notification.read && (
+                            <div className="size-2 rounded-full bg-primary" />
+                          )}
                         </div>
-                        {!notification.read && (
-                          <div className="size-2 rounded-full bg-primary" />
-                        )}
-                      </div>
-                      <span className="text-xs text-l-text-3 dark:text-d-text-3">
-                        {notification.time}
-                      </span>
+                        <span className="text-xs text-l-text-3 dark:text-d-text-3">
+                          {notification.time}
+                        </span>
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      asChild
+                      className="text-center justify-center text-sm text-primary cursor-pointer"
+                    >
+                      <Link to="/dashboard/notifications">
+                        View all notifications
+                      </Link>
                     </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem asChild className="text-center justify-center text-sm text-primary cursor-pointer">
-                    <Link to="/dashboard/notifications">
-                      View all notifications
-                    </Link>
-                  </DropdownMenuItem>
-                </>
-              ) : (
-                <div className="p-4 text-center text-sm text-l-text-3 dark:text-d-text-3">
-                  No notifications
-                </div>
-              )}
+                  </>
+                ) : (
+                  <div className="p-4 text-center text-sm text-l-text-3 dark:text-d-text-3">
+                    No notifications
+                  </div>
+                )}
               </div>
             </DropdownMenuContent>
           </DropdownMenu>
-
-          
         </div>
       </div>
     </header>
-  )
+  );
 }

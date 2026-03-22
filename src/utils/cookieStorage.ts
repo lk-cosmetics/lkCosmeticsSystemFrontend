@@ -73,7 +73,7 @@ async function encryptData(text: string): Promise<string> {
 async function decryptData(encryptedText: string): Promise<string> {
   try {
     // Convert base64 back to array buffer
-    const encryptedBuffer = Uint8Array.from(atob(encryptedText), (c) =>
+    const encryptedBuffer = Uint8Array.from(atob(encryptedText), c =>
       c.charCodeAt(0)
     );
 

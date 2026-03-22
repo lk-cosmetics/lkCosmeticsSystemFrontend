@@ -4,11 +4,11 @@
  */
 
 import { useCallback, useState, useMemo, memo } from 'react';
-import {
-  Eye,
+import { 
+  Eye, 
   Pencil,
-  Trash2,
-  Search,
+  Trash2, 
+  Search, 
   MoreVertical,
   Tag,
   Store,
@@ -95,17 +95,17 @@ import {
   useBulkDeactivatePromotions,
 } from '@/hooks/queries';
 
-import type {
-  PromotionListItem,
+import type { 
+  PromotionListItem, 
   Promotion,
   PromotionStatus,
   DiscountType,
   CreatePromotionRequest,
   UpdatePromotionRequest,
-  PromotionChannelRule,
   PromotionChannelRuleInput,
-  SalesChannel,
+  SalesChannel, 
 } from '@/types';
+import { getMediaUrl } from '@/utils/helpers';
 
 // =============================================================================
 // CONSTANTS
@@ -140,11 +140,7 @@ interface PromotionRowProps {
   onActivate: (promotion: PromotionListItem) => void;
   onDeactivate: (promotion: PromotionListItem) => void;
   onDuplicate: (promotion: PromotionListItem) => void;
-  getStatusBadge: (
-    status: PromotionStatus,
-    isActive: boolean,
-    isCurrentlyActive: boolean
-  ) => React.ReactNode;
+  getStatusBadge: (status: PromotionStatus, isActive: boolean, isCurrentlyActive: boolean) => React.ReactNode;
   formatDiscountValue: (value: string, type: DiscountType) => string;
   formatDate: (date: string) => string;
 }
@@ -164,23 +160,20 @@ const PromotionRow = memo(function PromotionRow({
   formatDiscountValue,
   formatDate,
 }: PromotionRowProps) {
-  const handleRowClick = useCallback(
-    (e: React.MouseEvent<HTMLTableRowElement>) => {
-      const target = e.target as HTMLElement;
-      const isCheckbox = target.closest('[role="checkbox"]');
-      const isButton = target.closest('button');
-      const isDropdown = target.closest('[role="menu"]');
-
-      if (isCheckbox || isButton || isDropdown) return;
-
-      if (selectionMode) {
-        onToggleSelection(promotion.id);
-      } else {
-        onView(promotion);
-      }
-    },
-    [selectionMode, promotion, onToggleSelection, onView]
-  );
+  const handleRowClick = useCallback((e: React.MouseEvent<HTMLTableRowElement>) => {
+    const target = e.target as HTMLElement;
+    const isCheckbox = target.closest('[role="checkbox"]');
+    const isButton = target.closest('button');
+    const isDropdown = target.closest('[role="menu"]');
+    
+    if (isCheckbox || isButton || isDropdown) return;
+    
+    if (selectionMode) {
+      onToggleSelection(promotion.id);
+    } else {
+      onView(promotion);
+    }
+  }, [selectionMode, promotion, onToggleSelection, onView]);
 
   const handleCheckboxClick = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
@@ -191,13 +184,13 @@ const PromotionRow = memo(function PromotionRow({
   }, [promotion.id, onToggleSelection]);
 
   return (
-    <TableRow
+    <TableRow 
       className={`group cursor-pointer hover:bg-l-bg-2/50 dark:hover:bg-d-bg-2/50 transition-all duration-150 ${isSelected ? 'bg-primary/5 hover:bg-primary/10' : ''}`}
       onClick={handleRowClick}
     >
       <TableCell className="w-12" onClick={handleCheckboxClick}>
         <div className="flex items-center justify-center p-1 -m-1 rounded hover:bg-l-bg-3 dark:hover:bg-d-bg-3 transition-colors">
-          <Checkbox
+          <Checkbox 
             checked={isSelected}
             onCheckedChange={handleCheckboxChange}
           />
@@ -207,8 +200,8 @@ const PromotionRow = memo(function PromotionRow({
         <div className="flex items-center gap-3">
           <div className="size-10 rounded-lg overflow-hidden bg-l-bg-2 dark:bg-d-bg-2 flex items-center justify-center border border-l-border dark:border-d-border flex-shrink-0">
             {promotion.product_image ? (
-              <img
-                src={promotion.product_image}
+              <img 
+                src={getMediaUrl(promotion.product_image) || ''}
                 alt={promotion.product_name}
                 className="size-full object-cover"
               />
@@ -217,12 +210,8 @@ const PromotionRow = memo(function PromotionRow({
             )}
           </div>
           <div className="min-w-0">
-            <p className="font-medium text-l-txt dark:text-d-txt truncate">
-              {promotion.name}
-            </p>
-            <p className="text-xs text-l-txt-2 dark:text-d-txt-2">
-              {promotion.product_name}
-            </p>
+            <p className="font-medium text-l-txt dark:text-d-txt truncate">{promotion.name}</p>
+            <p className="text-xs text-l-txt-2 dark:text-d-txt-2">{promotion.product_name}</p>
           </div>
         </div>
       </TableCell>
@@ -234,10 +223,7 @@ const PromotionRow = memo(function PromotionRow({
             <DollarSign className="size-4 text-blue-500" />
           )}
           <span className="font-semibold">
-            {formatDiscountValue(
-              promotion.default_discount_value,
-              promotion.discount_type
-            )}
+            {formatDiscountValue(promotion.default_discount_value, promotion.discount_type)}
           </span>
         </div>
       </TableCell>
@@ -249,20 +235,12 @@ const PromotionRow = memo(function PromotionRow({
       </TableCell>
       <TableCell>
         <div className="text-sm">
-          <p className="text-l-txt dark:text-d-txt">
-            {formatDate(promotion.start_date)}
-          </p>
-          <p className="text-l-txt-2 dark:text-d-txt-2 text-xs">
-            to {formatDate(promotion.end_date)}
-          </p>
+          <p className="text-l-txt dark:text-d-txt">{formatDate(promotion.start_date)}</p>
+          <p className="text-l-txt-2 dark:text-d-txt-2 text-xs">to {formatDate(promotion.end_date)}</p>
         </div>
       </TableCell>
       <TableCell>
-        {getStatusBadge(
-          promotion.status,
-          promotion.is_active,
-          promotion.is_currently_active
-        )}
+        {getStatusBadge(promotion.status, promotion.is_active, promotion.is_currently_active)}
       </TableCell>
       <TableCell>
         {promotion.max_usage ? (
@@ -270,19 +248,13 @@ const PromotionRow = memo(function PromotionRow({
             {promotion.current_usage} / {promotion.max_usage}
           </span>
         ) : (
-          <span className="text-sm text-l-txt-2 dark:text-d-txt-2">
-            Unlimited
-          </span>
+          <span className="text-sm text-l-txt-2 dark:text-d-txt-2">Unlimited</span>
         )}
       </TableCell>
       <TableCell>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="opacity-0 group-hover:opacity-100"
-            >
+            <Button variant="ghost" size="icon" className="opacity-0 group-hover:opacity-100">
               <MoreVertical className="size-4" />
             </Button>
           </DropdownMenuTrigger>
@@ -309,7 +281,7 @@ const PromotionRow = memo(function PromotionRow({
               </DropdownMenuItem>
             )}
             <DropdownMenuSeparator />
-            <DropdownMenuItem
+            <DropdownMenuItem 
               onClick={() => onDelete(promotion)}
               className="text-red-600 dark:text-red-400"
             >
@@ -333,38 +305,24 @@ interface ChannelRuleBuilderProps {
   readonly discountType: DiscountType;
 }
 
-function ChannelRuleBuilder({
-  channels,
-  rules,
-  onChange,
-  discountType,
-}: ChannelRuleBuilderProps) {
+function ChannelRuleBuilder({ channels, rules, onChange, discountType }: ChannelRuleBuilderProps) {
   const handleAddChannel = (channelId: number) => {
-    onChange([
-      ...rules,
-      {
-        sales_channel: channelId,
-        discount_value: 0,
-        is_enabled: true,
-        channel_priority: 0,
-      },
-    ]);
+    onChange([...rules, { 
+      sales_channel: channelId, 
+      discount_value: 0, 
+      is_enabled: true,
+      channel_priority: 0,
+    }]);
   };
 
   const handleRemoveChannel = (channelId: number) => {
     onChange(rules.filter(r => r.sales_channel !== channelId));
   };
 
-  const handleUpdateRule = (
-    channelId: number,
-    field: keyof PromotionChannelRuleInput,
-    value: unknown
-  ) => {
-    onChange(
-      rules.map(r =>
-        r.sales_channel === channelId ? { ...r, [field]: value } : r
-      )
-    );
+  const handleUpdateRule = (channelId: number, field: keyof PromotionChannelRuleInput, value: unknown) => {
+    onChange(rules.map(r => 
+      r.sales_channel === channelId ? { ...r, [field]: value } : r
+    ));
   };
 
   const ruleMap = useMemo(() => {
@@ -385,15 +343,15 @@ function ChannelRuleBuilder({
             const isEnabled = !!rule;
 
             return (
-              <div
-                key={channel.id}
+              <div 
+                key={channel.id} 
                 className={`p-4 transition-colors ${isEnabled ? 'bg-primary/5' : ''}`}
               >
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 min-w-0">
                     <Checkbox
                       checked={isEnabled}
-                      onCheckedChange={checked => {
+                      onCheckedChange={(checked) => {
                         if (checked) {
                           handleAddChannel(channel.id);
                         } else {
@@ -414,25 +372,19 @@ function ChannelRuleBuilder({
                   {isEnabled && (
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-2">
-                        <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">
-                          Discount:
-                        </Label>
+                        <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">Discount:</Label>
                         <div className="relative">
                           <Input
                             type="number"
                             min="0"
-                            max={
-                              discountType === 'percentage' ? 100 : undefined
-                            }
+                            max={discountType === 'percentage' ? 100 : undefined}
                             step="0.01"
                             value={rule?.discount_value || ''}
-                            onChange={e =>
-                              handleUpdateRule(
-                                channel.id,
-                                'discount_value',
-                                Number.parseFloat(e.target.value) || 0
-                              )
-                            }
+                            onChange={(e) => handleUpdateRule(
+                              channel.id, 
+                              'discount_value', 
+                              Number.parseFloat(e.target.value) || 0
+                            )}
                             className="w-24 pr-8"
                           />
                           <span className="absolute right-3 top-1/2 -translate-y-1/2 text-l-txt-2 dark:text-d-txt-2 text-sm">
@@ -442,20 +394,16 @@ function ChannelRuleBuilder({
                       </div>
 
                       <div className="flex items-center gap-2">
-                        <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">
-                          Priority:
-                        </Label>
+                        <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">Priority:</Label>
                         <Input
                           type="number"
                           min="0"
                           value={rule?.channel_priority || 0}
-                          onChange={e =>
-                            handleUpdateRule(
-                              channel.id,
-                              'channel_priority',
-                              Number.parseInt(e.target.value, 10) || 0
-                            )
-                          }
+                          onChange={(e) => handleUpdateRule(
+                            channel.id, 
+                            'channel_priority', 
+                            Number.parseInt(e.target.value, 10) || 0
+                          )}
                           className="w-16"
                         />
                       </div>
@@ -468,8 +416,7 @@ function ChannelRuleBuilder({
         )}
       </div>
       <p className="text-xs text-l-txt-2 dark:text-d-txt-2">
-        Select channels and set individual discount values. Higher priority
-        values take precedence.
+        Select channels and set individual discount values. Higher priority values take precedence.
       </p>
     </div>
   );
@@ -496,24 +443,21 @@ export default function PromotionsPage() {
   const duplicatePromotionMutation = useDuplicatePromotion();
   const bulkActivateMutation = useBulkActivatePromotions();
   const bulkDeactivateMutation = useBulkDeactivatePromotions();
-
+  
   // UI State
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedItems, setSelectedItems] = useState<number[]>([]);
   // Removed unused filter state
-
-  // Dialog State
-  const [selectedPromotion, setSelectedPromotion] = useState<Promotion | null>(
-    null
-  );
+  
+  // Dialog State  
+  const [selectedPromotion, setSelectedPromotion] = useState<Promotion | null>(null);
   const [isViewDialogOpen, setIsViewDialogOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const [promotionToDelete, setPromotionToDelete] =
-    useState<PromotionListItem | null>(null);
-
+  const [promotionToDelete, setPromotionToDelete] = useState<PromotionListItem | null>(null);
+  
   // Form State
   const [formData, setFormData] = useState<{
     name: string;
@@ -550,16 +494,10 @@ export default function PromotionsPage() {
   });
 
   const { user } = useAuthStore();
-  const canManage =
-    hasRole(user, 'SuperAdmin') ||
-    hasRole(user, 'Manager') ||
-    hasRole(user, 'CEO');
+  const canManage = hasRole(user, 'SuperAdmin') || hasRole(user, 'Manager') || hasRole(user, 'CEO');
 
   // Selection mode for Samsung Gallery-style behavior
-  const selectionMode = useMemo(
-    () => selectedItems.length > 0,
-    [selectedItems.length]
-  );
+  const selectionMode = useMemo(() => selectedItems.length > 0, [selectedItems.length]);
   const selectedSet = useMemo(() => new Set(selectedItems), [selectedItems]);
 
   // ==========================================================================
@@ -568,15 +506,13 @@ export default function PromotionsPage() {
 
   const filteredPromotions = useMemo(() => {
     return promotions.filter(promo => {
-      const matchesSearch =
-        !searchQuery ||
+      const matchesSearch = !searchQuery || 
         promo.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         promo.product_name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         promo.code?.toLowerCase().includes(searchQuery.toLowerCase());
-
-      const matchesStatus =
-        statusFilter === 'all' || promo.status === statusFilter;
-
+      
+      const matchesStatus = statusFilter === 'all' || promo.status === statusFilter;
+      
       return matchesSearch && matchesStatus;
     });
   }, [promotions, searchQuery, statusFilter]);
@@ -586,7 +522,7 @@ export default function PromotionsPage() {
   // ==========================================================================
 
   const handleToggleSelection = useCallback((id: number) => {
-    setSelectedItems(prev =>
+    setSelectedItems(prev => 
       prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
     );
   }, []);
@@ -613,7 +549,7 @@ export default function PromotionsPage() {
     try {
       const fullPromotion = await promotionService.getPromotionById(promo.id);
       setSelectedPromotion(fullPromotion);
-
+      
       // Populate form
       setFormData({
         name: fullPromotion.name,
@@ -630,17 +566,15 @@ export default function PromotionsPage() {
         max_usage: fullPromotion.max_usage?.toString() || '',
         priority: fullPromotion.priority.toString(),
         is_stackable: fullPromotion.is_stackable,
-        channel_rules: fullPromotion.channel_rules.map(
-          (r: PromotionChannelRule) => ({
-            sales_channel: r.sales_channel,
-            discount_value: Number.parseFloat(r.discount_value),
-            is_enabled: r.is_enabled,
-            channel_priority: r.channel_priority,
-            channel_max_usage: r.channel_max_usage,
-          })
-        ),
+        channel_rules: fullPromotion.channel_rules.map((r: any) => ({
+          sales_channel: r.sales_channel,
+          discount_value: Number.parseFloat(r.discount_value),
+          is_enabled: r.is_enabled,
+          channel_priority: r.channel_priority,
+          channel_max_usage: r.channel_max_usage,
+        })),
       });
-
+      
       setIsEditDialogOpen(true);
     } catch (err) {
       console.error('Error fetching promotion details:', err);
@@ -654,7 +588,7 @@ export default function PromotionsPage() {
 
   const confirmDelete = useCallback(async () => {
     if (!promotionToDelete) return;
-
+    
     try {
       await deletePromotionMutation.mutateAsync(promotionToDelete.id);
       setIsDeleteDialogOpen(false);
@@ -664,38 +598,29 @@ export default function PromotionsPage() {
     }
   }, [promotionToDelete, deletePromotionMutation]);
 
-  const handleActivate = useCallback(
-    async (promo: PromotionListItem) => {
-      try {
-        await activatePromotionMutation.mutateAsync(promo.id);
-      } catch (err) {
-        console.error('Error activating promotion:', err);
-      }
-    },
-    [activatePromotionMutation]
-  );
+  const handleActivate = useCallback(async (promo: PromotionListItem) => {
+    try {
+      await activatePromotionMutation.mutateAsync(promo.id);
+    } catch (err) {
+      console.error('Error activating promotion:', err);
+    }
+  }, [activatePromotionMutation]);
 
-  const handleDeactivate = useCallback(
-    async (promo: PromotionListItem) => {
-      try {
-        await deactivatePromotionMutation.mutateAsync(promo.id);
-      } catch (err) {
-        console.error('Error deactivating promotion:', err);
-      }
-    },
-    [deactivatePromotionMutation]
-  );
+  const handleDeactivate = useCallback(async (promo: PromotionListItem) => {
+    try {
+      await deactivatePromotionMutation.mutateAsync(promo.id);
+    } catch (err) {
+      console.error('Error deactivating promotion:', err);
+    }
+  }, [deactivatePromotionMutation]);
 
-  const handleDuplicate = useCallback(
-    async (promo: PromotionListItem) => {
-      try {
-        await duplicatePromotionMutation.mutateAsync(promo.id);
-      } catch (err) {
-        console.error('Error duplicating promotion:', err);
-      }
-    },
-    [duplicatePromotionMutation]
-  );
+  const handleDuplicate = useCallback(async (promo: PromotionListItem) => {
+    try {
+      await duplicatePromotionMutation.mutateAsync(promo.id);
+    } catch (err) {
+      console.error('Error duplicating promotion:', err);
+    }
+  }, [duplicatePromotionMutation]);
 
   const handleBulkActivate = useCallback(async () => {
     try {
@@ -741,11 +666,7 @@ export default function PromotionsPage() {
   }, [resetForm]);
 
   const handleCreate = useCallback(async () => {
-    if (
-      !formData.product ||
-      !formData.brand ||
-      formData.channel_rules.length === 0
-    ) {
+    if (!formData.product || !formData.brand || formData.channel_rules.length === 0) {
       return;
     }
 
@@ -757,16 +678,12 @@ export default function PromotionsPage() {
         product: formData.product,
         brand: formData.brand || undefined,
         discount_type: formData.discount_type,
-        default_discount_value: Number.parseFloat(
-          formData.default_discount_value
-        ),
+        default_discount_value: Number.parseFloat(formData.default_discount_value),
         start_date: formData.start_date,
         end_date: formData.end_date,
         status: formData.status,
         is_active: formData.is_active,
-        max_usage: formData.max_usage
-          ? Number.parseInt(formData.max_usage, 10)
-          : undefined,
+        max_usage: formData.max_usage ? Number.parseInt(formData.max_usage, 10) : undefined,
         priority: Number.parseInt(formData.priority, 10) || 0,
         is_stackable: formData.is_stackable,
         channel_rules: formData.channel_rules,
@@ -791,25 +708,18 @@ export default function PromotionsPage() {
         product: formData.product || undefined,
         brand: formData.brand || undefined,
         discount_type: formData.discount_type,
-        default_discount_value: Number.parseFloat(
-          formData.default_discount_value
-        ),
+        default_discount_value: Number.parseFloat(formData.default_discount_value),
         start_date: formData.start_date,
         end_date: formData.end_date,
         status: formData.status,
         is_active: formData.is_active,
-        max_usage: formData.max_usage
-          ? Number.parseInt(formData.max_usage, 10)
-          : undefined,
+        max_usage: formData.max_usage ? Number.parseInt(formData.max_usage, 10) : undefined,
         priority: Number.parseInt(formData.priority, 10) || 0,
         is_stackable: formData.is_stackable,
         channel_rules: formData.channel_rules,
       };
 
-      await updatePromotionMutation.mutateAsync({
-        id: selectedPromotion.id,
-        data: request,
-      });
+      await updatePromotionMutation.mutateAsync({ id: selectedPromotion.id, data: request });
       setIsEditDialogOpen(false);
       setSelectedPromotion(null);
       resetForm();
@@ -822,82 +732,40 @@ export default function PromotionsPage() {
   // Render Helpers
   // ==========================================================================
 
-  const getStatusBadge = useCallback(
-    (
-      status: PromotionStatus,
-      isActive: boolean,
-      isCurrentlyActive: boolean
-    ) => {
-      if (isCurrentlyActive) {
-        return (
-          <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 gap-1">
-            <CheckCircle2 className="size-3" /> Live
-          </Badge>
-        );
-      }
-
-      const variants: Record<
-        PromotionStatus,
-        { class: string; icon: React.ReactNode; label: string }
-      > = {
-        draft: {
-          class:
-            'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300',
-          icon: <Clock className="size-3" />,
-          label: 'Draft',
-        },
-        scheduled: {
-          class:
-            'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-          icon: <Clock className="size-3" />,
-          label: 'Scheduled',
-        },
-        active: {
-          class:
-            'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-          icon: <Play className="size-3" />,
-          label: isActive ? 'Scheduled' : 'Paused',
-        },
-        paused: {
-          class:
-            'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-          icon: <Pause className="size-3" />,
-          label: 'Paused',
-        },
-        expired: {
-          class: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
-          icon: <XCircle className="size-3" />,
-          label: 'Expired',
-        },
-        cancelled: {
-          class:
-            'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400',
-          icon: <XCircle className="size-3" />,
-          label: 'Cancelled',
-        },
-      };
-
-      const variant = variants[status] || variants.draft;
-
+  const getStatusBadge = useCallback((status: PromotionStatus, isActive: boolean, isCurrentlyActive: boolean) => {
+    if (isCurrentlyActive) {
       return (
-        <Badge className={`${variant.class} gap-1`}>
-          {variant.icon} {variant.label}
+        <Badge className="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 gap-1">
+          <CheckCircle2 className="size-3" /> Live
         </Badge>
       );
-    },
-    []
-  );
+    }
 
-  const formatDiscountValue = useCallback(
-    (value: string, type: DiscountType) => {
-      const numValue = Number.parseFloat(value);
-      if (type === 'percentage') {
-        return `${numValue}%`;
-      }
-      return `${numValue.toFixed(2)} TND`;
-    },
-    []
-  );
+    const variants: Record<PromotionStatus, { class: string; icon: React.ReactNode; label: string }> = {
+      draft: { class: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300', icon: <Clock className="size-3" />, label: 'Draft' },
+      scheduled: { class: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', icon: <Clock className="size-3" />, label: 'Scheduled' },
+      active: { class: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400', icon: <Play className="size-3" />, label: isActive ? 'Scheduled' : 'Paused' },
+      paused: { class: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400', icon: <Pause className="size-3" />, label: 'Paused' },
+      expired: { class: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400', icon: <XCircle className="size-3" />, label: 'Expired' },
+      cancelled: { class: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-400', icon: <XCircle className="size-3" />, label: 'Cancelled' },
+    };
+
+    const variant = variants[status] || variants.draft;
+
+    return (
+      <Badge className={`${variant.class} gap-1`}>
+        {variant.icon} {variant.label}
+      </Badge>
+    );
+  }, []);
+
+  const formatDiscountValue = useCallback((value: string, type: DiscountType) => {
+    const numValue = Number.parseFloat(value);
+    if (type === 'percentage') {
+      return `${numValue}%`;
+    }
+    return `${numValue.toFixed(2)} TND`;
+  }, []);
 
   const formatDate = useCallback((dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('en-US', {
@@ -932,20 +800,13 @@ export default function PromotionsPage() {
             Manage multi-channel promotions and discounts
           </p>
         </div>
-
+        
         <div className="flex items-center gap-3">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => refetch()}
-            disabled={isLoading}
-          >
-            <RefreshCw
-              className={`size-4 mr-2 ${isLoading ? 'animate-spin' : ''}`}
-            />
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading}>
+            <RefreshCw className={`size-4 mr-2 ${isLoading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-
+          
           {canManage && (
             <Button onClick={handleOpenCreate}>
               <Plus className="size-4 mr-2" />
@@ -963,11 +824,11 @@ export default function PromotionsPage() {
             <Input
               placeholder="Search promotions..."
               value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10"
             />
           </div>
-
+          
           <Select value={statusFilter} onValueChange={setStatusFilter}>
             <SelectTrigger className="w-[180px]">
               <SelectValue placeholder="Filter by status" />
@@ -975,9 +836,7 @@ export default function PromotionsPage() {
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
               {PROMOTION_STATUS_OPTIONS.map(opt => (
-                <SelectItem key={opt.value} value={opt.value}>
-                  {opt.label}
-                </SelectItem>
+                <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
               ))}
             </SelectContent>
           </Select>
@@ -995,18 +854,10 @@ export default function PromotionsPage() {
               <Button variant="outline" size="sm" onClick={handleBulkActivate}>
                 <Play className="size-4 mr-1" /> Activate
               </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleBulkDeactivate}
-              >
+              <Button variant="outline" size="sm" onClick={handleBulkDeactivate}>
                 <Pause className="size-4 mr-1" /> Deactivate
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setSelectedItems([])}
-              >
+              <Button variant="ghost" size="sm" onClick={() => setSelectedItems([])}>
                 Clear
               </Button>
             </div>
@@ -1020,11 +871,7 @@ export default function PromotionsPage() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
               <AlertTriangle className="size-5" />
-              <span>
-                {error instanceof Error
-                  ? error.message
-                  : 'Failed to load promotions. Please try again.'}
-              </span>
+              <span>{error instanceof Error ? error.message : 'Failed to load promotions. Please try again.'}</span>
             </div>
             <Button
               onClick={() => refetch()}
@@ -1046,10 +893,7 @@ export default function PromotionsPage() {
             <TableRow>
               <TableHead className="w-12">
                 <Checkbox
-                  checked={
-                    filteredPromotions.length > 0 &&
-                    selectedItems.length === filteredPromotions.length
-                  }
+                  checked={filteredPromotions.length > 0 && selectedItems.length === filteredPromotions.length}
                   onCheckedChange={handleSelectAll}
                 />
               </TableHead>
@@ -1065,11 +909,8 @@ export default function PromotionsPage() {
           <TableBody>
             {filteredPromotions.length === 0 ? (
               <TableRow>
-                <TableCell
-                  colSpan={8}
-                  className="text-center py-8 text-l-txt-2 dark:text-d-txt-2"
-                >
-                  {searchQuery || statusFilter !== 'all'
+                <TableCell colSpan={8} className="text-center py-8 text-l-txt-2 dark:text-d-txt-2">
+                  {searchQuery || statusFilter !== 'all' 
                     ? 'No promotions match your search criteria'
                     : 'No promotions yet. Create your first promotion!'}
                 </TableCell>
@@ -1110,76 +951,47 @@ export default function PromotionsPage() {
               Promotion details and channel configurations
             </DialogDescription>
           </DialogHeader>
-
+          
           {selectedPromotion && (
             <div className="space-y-6">
               {/* Basic Info */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">
-                    Product
-                  </Label>
-                  <p className="font-medium">
-                    {selectedPromotion.product_name}
-                  </p>
+                  <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">Product</Label>
+                  <p className="font-medium">{selectedPromotion.product_name}</p>
                 </div>
                 <div>
-                  <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">
-                    Code
-                  </Label>
+                  <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">Code</Label>
                   <p className="font-medium">{selectedPromotion.code || '-'}</p>
                 </div>
                 <div>
-                  <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">
-                    Discount
-                  </Label>
+                  <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">Discount</Label>
                   <p className="font-medium">
-                    {formatDiscountValue(
-                      selectedPromotion.default_discount_value,
-                      selectedPromotion.discount_type
-                    )}
+                    {formatDiscountValue(selectedPromotion.default_discount_value, selectedPromotion.discount_type)}
                   </p>
                 </div>
                 <div>
-                  <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">
-                    Status
-                  </Label>
+                  <Label className="text-xs text-l-txt-2 dark:text-d-txt-2">Status</Label>
                   <div className="mt-1">
-                    {getStatusBadge(
-                      selectedPromotion.status,
-                      selectedPromotion.is_active,
-                      selectedPromotion.is_currently_active
-                    )}
+                    {getStatusBadge(selectedPromotion.status, selectedPromotion.is_active, selectedPromotion.is_currently_active)}
                   </div>
                 </div>
               </div>
 
               {/* Channel Rules */}
               <div>
-                <Label className="text-sm font-medium mb-2 block">
-                  Channel-Specific Discounts
-                </Label>
+                <Label className="text-sm font-medium mb-2 block">Channel-Specific Discounts</Label>
                 <div className="border border-l-border dark:border-d-border rounded-lg divide-y divide-l-border dark:divide-d-border">
                   {selectedPromotion.channel_rules.map(rule => (
-                    <div
-                      key={rule.id}
-                      className="p-3 flex items-center justify-between"
-                    >
+                    <div key={rule.id} className="p-3 flex items-center justify-between">
                       <div className="flex items-center gap-2">
                         <Store className="size-4 text-l-txt-2 dark:text-d-txt-2" />
-                        <span className="font-medium">
-                          {rule.sales_channel_name}
-                        </span>
-                        <Badge variant="outline" className="text-xs">
-                          {rule.sales_channel_type}
-                        </Badge>
+                        <span className="font-medium">{rule.sales_channel_name}</span>
+                        <Badge variant="outline" className="text-xs">{rule.sales_channel_type}</Badge>
                       </div>
                       <div className="flex items-center gap-4">
                         <span className="font-semibold text-green-600 dark:text-green-400">
-                          {formatDiscountValue(
-                            rule.discount_value,
-                            selectedPromotion.discount_type
-                          )}
+                          {formatDiscountValue(rule.discount_value, selectedPromotion.discount_type)}
                         </span>
                         {!rule.is_enabled && (
                           <Badge variant="secondary">Disabled</Badge>
@@ -1206,7 +1018,7 @@ export default function PromotionsPage() {
               Create a new promotion with channel-specific discounts
             </DialogDescription>
           </DialogHeader>
-
+          
           <div className="space-y-6 py-4">
             {/* Basic Info */}
             <div className="grid grid-cols-2 gap-4">
@@ -1215,24 +1027,17 @@ export default function PromotionsPage() {
                 <Input
                   id="name"
                   value={formData.name}
-                  onChange={e =>
-                    setFormData(prev => ({ ...prev, name: e.target.value }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="Summer Sale 2024"
                 />
               </div>
-
+              
               <div className="col-span-2">
                 <Label htmlFor="description">Description</Label>
                 <Textarea
                   id="description"
                   value={formData.description}
-                  onChange={e =>
-                    setFormData(prev => ({
-                      ...prev,
-                      description: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                   placeholder="Promotional campaign description..."
                   rows={2}
                 />
@@ -1243,35 +1048,23 @@ export default function PromotionsPage() {
                 <Input
                   id="code"
                   value={formData.code}
-                  onChange={e =>
-                    setFormData(prev => ({
-                      ...prev,
-                      code: e.target.value.toUpperCase(),
-                    }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
                   placeholder="SUMMER20"
                 />
               </div>
 
               <div>
                 <Label>Status</Label>
-                <Select
-                  value={formData.status}
-                  onValueChange={v =>
-                    setFormData(prev => ({
-                      ...prev,
-                      status: v as PromotionStatus,
-                    }))
-                  }
+                <Select 
+                  value={formData.status} 
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, status: v as PromotionStatus }))}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {PROMOTION_STATUS_OPTIONS.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1282,23 +1075,16 @@ export default function PromotionsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Product *</Label>
-                <Select
-                  value={formData.product?.toString() || ''}
-                  onValueChange={v =>
-                    setFormData(prev => ({
-                      ...prev,
-                      product: Number.parseInt(v, 10),
-                    }))
-                  }
+                <Select 
+                  value={formData.product?.toString() || ''} 
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, product: Number.parseInt(v, 10) }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select product" />
                   </SelectTrigger>
                   <SelectContent>
                     {products.map(p => (
-                      <SelectItem key={p.id} value={p.id.toString()}>
-                        {p.name}
-                      </SelectItem>
+                      <SelectItem key={p.id} value={p.id.toString()}>{p.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1306,23 +1092,16 @@ export default function PromotionsPage() {
 
               <div>
                 <Label>Brand *</Label>
-                <Select
-                  value={formData.brand?.toString() || ''}
-                  onValueChange={v =>
-                    setFormData(prev => ({
-                      ...prev,
-                      brand: Number.parseInt(v, 10),
-                    }))
-                  }
+                <Select 
+                  value={formData.brand?.toString() || ''} 
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, brand: Number.parseInt(v, 10) }))}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select brand" />
                   </SelectTrigger>
                   <SelectContent>
                     {brands.map(b => (
-                      <SelectItem key={b.id} value={b.id.toString()}>
-                        {b.name}
-                      </SelectItem>
+                      <SelectItem key={b.id} value={b.id.toString()}>{b.name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1333,23 +1112,16 @@ export default function PromotionsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Discount Type *</Label>
-                <Select
-                  value={formData.discount_type}
-                  onValueChange={v =>
-                    setFormData(prev => ({
-                      ...prev,
-                      discount_type: v as DiscountType,
-                    }))
-                  }
+                <Select 
+                  value={formData.discount_type} 
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, discount_type: v as DiscountType }))}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {DISCOUNT_TYPE_OPTIONS.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1362,17 +1134,10 @@ export default function PromotionsPage() {
                     id="default_discount"
                     type="number"
                     min="0"
-                    max={
-                      formData.discount_type === 'percentage' ? 100 : undefined
-                    }
+                    max={formData.discount_type === 'percentage' ? 100 : undefined}
                     step="0.01"
                     value={formData.default_discount_value}
-                    onChange={e =>
-                      setFormData(prev => ({
-                        ...prev,
-                        default_discount_value: e.target.value,
-                      }))
-                    }
+                    onChange={(e) => setFormData(prev => ({ ...prev, default_discount_value: e.target.value }))}
                     className="pr-8"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-l-txt-2 dark:text-d-txt-2">
@@ -1390,12 +1155,7 @@ export default function PromotionsPage() {
                   id="start_date"
                   type="date"
                   value={formData.start_date}
-                  onChange={e =>
-                    setFormData(prev => ({
-                      ...prev,
-                      start_date: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, start_date: e.target.value }))}
                 />
               </div>
               <div>
@@ -1404,9 +1164,7 @@ export default function PromotionsPage() {
                   id="end_date"
                   type="date"
                   value={formData.end_date}
-                  onChange={e =>
-                    setFormData(prev => ({ ...prev, end_date: e.target.value }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, end_date: e.target.value }))}
                 />
               </div>
             </div>
@@ -1420,12 +1178,7 @@ export default function PromotionsPage() {
                   type="number"
                   min="0"
                   value={formData.max_usage}
-                  onChange={e =>
-                    setFormData(prev => ({
-                      ...prev,
-                      max_usage: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, max_usage: e.target.value }))}
                   placeholder="Unlimited"
                 />
               </div>
@@ -1436,9 +1189,7 @@ export default function PromotionsPage() {
                   type="number"
                   min="0"
                   value={formData.priority}
-                  onChange={e =>
-                    setFormData(prev => ({ ...prev, priority: e.target.value }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value }))}
                 />
               </div>
               <div className="flex items-end gap-4">
@@ -1446,25 +1197,17 @@ export default function PromotionsPage() {
                   <Switch
                     id="is_stackable"
                     checked={formData.is_stackable}
-                    onCheckedChange={c =>
-                      setFormData(prev => ({ ...prev, is_stackable: c }))
-                    }
+                    onCheckedChange={(c) => setFormData(prev => ({ ...prev, is_stackable: c }))}
                   />
-                  <Label htmlFor="is_stackable" className="cursor-pointer">
-                    Stackable
-                  </Label>
+                  <Label htmlFor="is_stackable" className="cursor-pointer">Stackable</Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch
                     id="is_active"
                     checked={formData.is_active}
-                    onCheckedChange={c =>
-                      setFormData(prev => ({ ...prev, is_active: c }))
-                    }
+                    onCheckedChange={(c) => setFormData(prev => ({ ...prev, is_active: c }))}
                   />
-                  <Label htmlFor="is_active" className="cursor-pointer">
-                    Active
-                  </Label>
+                  <Label htmlFor="is_active" className="cursor-pointer">Active</Label>
                 </div>
               </div>
             </div>
@@ -1473,35 +1216,20 @@ export default function PromotionsPage() {
             <ChannelRuleBuilder
               channels={channels}
               rules={formData.channel_rules}
-              onChange={rules =>
-                setFormData(prev => ({ ...prev, channel_rules: rules }))
-              }
+              onChange={(rules) => setFormData(prev => ({ ...prev, channel_rules: rules }))}
               discountType={formData.discount_type}
             />
           </div>
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setIsCreateDialogOpen(false)}
-            >
+            <Button variant="outline" onClick={() => setIsCreateDialogOpen(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={handleCreate}
-              disabled={
-                createPromotionMutation.isPending ||
-                !formData.name ||
-                !formData.product ||
-                !formData.brand ||
-                formData.channel_rules.length === 0
-              }
+            <Button 
+              onClick={handleCreate} 
+              disabled={createPromotionMutation.isPending || !formData.name || !formData.product || !formData.brand || formData.channel_rules.length === 0}
             >
-              {createPromotionMutation.isPending ? (
-                <Loader2 className="size-4 mr-2 animate-spin" />
-              ) : (
-                <Plus className="size-4 mr-2" />
-              )}
+              {createPromotionMutation.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Plus className="size-4 mr-2" />}
               Create Promotion
             </Button>
           </DialogFooter>
@@ -1520,7 +1248,7 @@ export default function PromotionsPage() {
               Update promotion settings and channel discounts
             </DialogDescription>
           </DialogHeader>
-
+          
           {/* Same form content as Create */}
           <div className="space-y-6 py-4">
             {/* Basic Info */}
@@ -1530,23 +1258,16 @@ export default function PromotionsPage() {
                 <Input
                   id="edit-name"
                   value={formData.name}
-                  onChange={e =>
-                    setFormData(prev => ({ ...prev, name: e.target.value }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, name: e.target.value }))}
                 />
               </div>
-
+              
               <div className="col-span-2">
                 <Label htmlFor="edit-description">Description</Label>
                 <Textarea
                   id="edit-description"
                   value={formData.description}
-                  onChange={e =>
-                    setFormData(prev => ({
-                      ...prev,
-                      description: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, description: e.target.value }))}
                   rows={2}
                 />
               </div>
@@ -1556,34 +1277,22 @@ export default function PromotionsPage() {
                 <Input
                   id="edit-code"
                   value={formData.code}
-                  onChange={e =>
-                    setFormData(prev => ({
-                      ...prev,
-                      code: e.target.value.toUpperCase(),
-                    }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, code: e.target.value.toUpperCase() }))}
                 />
               </div>
 
               <div>
                 <Label>Status</Label>
-                <Select
-                  value={formData.status}
-                  onValueChange={v =>
-                    setFormData(prev => ({
-                      ...prev,
-                      status: v as PromotionStatus,
-                    }))
-                  }
+                <Select 
+                  value={formData.status} 
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, status: v as PromotionStatus }))}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {PROMOTION_STATUS_OPTIONS.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
@@ -1594,48 +1303,32 @@ export default function PromotionsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <Label>Discount Type *</Label>
-                <Select
-                  value={formData.discount_type}
-                  onValueChange={v =>
-                    setFormData(prev => ({
-                      ...prev,
-                      discount_type: v as DiscountType,
-                    }))
-                  }
+                <Select 
+                  value={formData.discount_type} 
+                  onValueChange={(v) => setFormData(prev => ({ ...prev, discount_type: v as DiscountType }))}
                 >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {DISCOUNT_TYPE_OPTIONS.map(opt => (
-                      <SelectItem key={opt.value} value={opt.value}>
-                        {opt.label}
-                      </SelectItem>
+                      <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
 
               <div>
-                <Label htmlFor="edit-default_discount">
-                  Default Discount *
-                </Label>
+                <Label htmlFor="edit-default_discount">Default Discount *</Label>
                 <div className="relative">
                   <Input
                     id="edit-default_discount"
                     type="number"
                     min="0"
-                    max={
-                      formData.discount_type === 'percentage' ? 100 : undefined
-                    }
+                    max={formData.discount_type === 'percentage' ? 100 : undefined}
                     step="0.01"
                     value={formData.default_discount_value}
-                    onChange={e =>
-                      setFormData(prev => ({
-                        ...prev,
-                        default_discount_value: e.target.value,
-                      }))
-                    }
+                    onChange={(e) => setFormData(prev => ({ ...prev, default_discount_value: e.target.value }))}
                     className="pr-8"
                   />
                   <span className="absolute right-3 top-1/2 -translate-y-1/2 text-l-txt-2 dark:text-d-txt-2">
@@ -1653,12 +1346,7 @@ export default function PromotionsPage() {
                   id="edit-start_date"
                   type="date"
                   value={formData.start_date}
-                  onChange={e =>
-                    setFormData(prev => ({
-                      ...prev,
-                      start_date: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, start_date: e.target.value }))}
                 />
               </div>
               <div>
@@ -1667,9 +1355,7 @@ export default function PromotionsPage() {
                   id="edit-end_date"
                   type="date"
                   value={formData.end_date}
-                  onChange={e =>
-                    setFormData(prev => ({ ...prev, end_date: e.target.value }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, end_date: e.target.value }))}
                 />
               </div>
             </div>
@@ -1683,12 +1369,7 @@ export default function PromotionsPage() {
                   type="number"
                   min="0"
                   value={formData.max_usage}
-                  onChange={e =>
-                    setFormData(prev => ({
-                      ...prev,
-                      max_usage: e.target.value,
-                    }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, max_usage: e.target.value }))}
                   placeholder="Unlimited"
                 />
               </div>
@@ -1699,9 +1380,7 @@ export default function PromotionsPage() {
                   type="number"
                   min="0"
                   value={formData.priority}
-                  onChange={e =>
-                    setFormData(prev => ({ ...prev, priority: e.target.value }))
-                  }
+                  onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value }))}
                 />
               </div>
               <div className="flex items-end gap-4">
@@ -1709,25 +1388,17 @@ export default function PromotionsPage() {
                   <Switch
                     id="edit-is_stackable"
                     checked={formData.is_stackable}
-                    onCheckedChange={c =>
-                      setFormData(prev => ({ ...prev, is_stackable: c }))
-                    }
+                    onCheckedChange={(c) => setFormData(prev => ({ ...prev, is_stackable: c }))}
                   />
-                  <Label htmlFor="edit-is_stackable" className="cursor-pointer">
-                    Stackable
-                  </Label>
+                  <Label htmlFor="edit-is_stackable" className="cursor-pointer">Stackable</Label>
                 </div>
                 <div className="flex items-center gap-2">
                   <Switch
                     id="edit-is_active"
                     checked={formData.is_active}
-                    onCheckedChange={c =>
-                      setFormData(prev => ({ ...prev, is_active: c }))
-                    }
+                    onCheckedChange={(c) => setFormData(prev => ({ ...prev, is_active: c }))}
                   />
-                  <Label htmlFor="edit-is_active" className="cursor-pointer">
-                    Active
-                  </Label>
+                  <Label htmlFor="edit-is_active" className="cursor-pointer">Active</Label>
                 </div>
               </div>
             </div>
@@ -1736,33 +1407,20 @@ export default function PromotionsPage() {
             <ChannelRuleBuilder
               channels={channels}
               rules={formData.channel_rules}
-              onChange={rules =>
-                setFormData(prev => ({ ...prev, channel_rules: rules }))
-              }
+              onChange={(rules) => setFormData(prev => ({ ...prev, channel_rules: rules }))}
               discountType={formData.discount_type}
             />
           </div>
 
           <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setIsEditDialogOpen(false)}
-            >
+            <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>
               Cancel
             </Button>
-            <Button
-              onClick={handleUpdate}
-              disabled={
-                updatePromotionMutation.isPending ||
-                !formData.name ||
-                formData.channel_rules.length === 0
-              }
+            <Button 
+              onClick={handleUpdate} 
+              disabled={updatePromotionMutation.isPending || !formData.name || formData.channel_rules.length === 0}
             >
-              {updatePromotionMutation.isPending ? (
-                <Loader2 className="size-4 mr-2 animate-spin" />
-              ) : (
-                <Check className="size-4 mr-2" />
-              )}
+              {updatePromotionMutation.isPending ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Check className="size-4 mr-2" />}
               Save Changes
             </Button>
           </DialogFooter>
@@ -1770,24 +1428,17 @@ export default function PromotionsPage() {
       </Dialog>
 
       {/* Delete Confirmation */}
-      <AlertDialog
-        open={isDeleteDialogOpen}
-        onOpenChange={setIsDeleteDialogOpen}
-      >
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Promotion</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{promotionToDelete?.name}"? This
-              action cannot be undone.
+              Are you sure you want to delete "{promotionToDelete?.name}"? This action cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDelete}
-              className="bg-red-600 hover:bg-red-700"
-            >
+            <AlertDialogAction onClick={confirmDelete} className="bg-red-600 hover:bg-red-700">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

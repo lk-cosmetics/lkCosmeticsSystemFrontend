@@ -16,10 +16,10 @@ interface UseUserFiltersProps<T> {
 interface UseUserFiltersReturn<T> {
   // Filter states
   filters: FilterState;
-  
+
   // Filtered data
   filteredUsers: T[];
-  
+
   // Filter actions
   setSearchQuery: (query: string) => void;
   setRoleFilter: (role: string) => void;
@@ -41,11 +41,9 @@ export function useUserFilters<T>({
 
   // Memoized filtered users
   const filteredUsers = useMemo(() => {
-    return users.filter((user) => {
+    return users.filter(user => {
       // Search filter
-      const searchableText = getSearchableFields(user)
-        .join(' ')
-        .toLowerCase();
+      const searchableText = getSearchableFields(user).join(' ').toLowerCase();
       const matchesSearch = searchableText.includes(
         filters.searchQuery.toLowerCase()
       );
@@ -65,15 +63,15 @@ export function useUserFilters<T>({
   }, [users, filters, getSearchableFields, getRoleField, getStatusField]);
 
   const setSearchQuery = (query: string) => {
-    setFilters((prev) => ({ ...prev, searchQuery: query }));
+    setFilters(prev => ({ ...prev, searchQuery: query }));
   };
 
   const setRoleFilter = (role: string) => {
-    setFilters((prev) => ({ ...prev, roleFilter: role }));
+    setFilters(prev => ({ ...prev, roleFilter: role }));
   };
 
   const setStatusFilter = (status: string) => {
-    setFilters((prev) => ({ ...prev, statusFilter: status }));
+    setFilters(prev => ({ ...prev, statusFilter: status }));
   };
 
   const resetFilters = () => {

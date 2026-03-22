@@ -6,8 +6,7 @@ import type { CreateBrandRequest } from '@/types';
 export const brandsKeys = {
   all: ['brands'] as const,
   lists: () => [...brandsKeys.all, 'list'] as const,
-  list: (filters?: Record<string, unknown>) =>
-    [...brandsKeys.lists(), filters] as const,
+  list: (filters?: Record<string, unknown>) => [...brandsKeys.lists(), filters] as const,
   details: () => [...brandsKeys.all, 'detail'] as const,
   detail: (id: number) => [...brandsKeys.details(), id] as const,
 };
@@ -51,7 +50,7 @@ export function useCreateBrand() {
   return useMutation({
     mutationFn: (data: CreateBrandRequest) => brandService.createBrand(data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: brandsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: brandsKeys.lists() });
     },
   });
 }
@@ -66,10 +65,8 @@ export function useUpdateBrand() {
     mutationFn: ({ id, data }: { id: number; data: CreateBrandRequest }) =>
       brandService.updateBrand(id, data),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: brandsKeys.detail(variables.id),
-      });
-      void queryClient.invalidateQueries({ queryKey: brandsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: brandsKeys.detail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: brandsKeys.lists() });
     },
   });
 }
@@ -81,18 +78,11 @@ export function usePartialUpdateBrand() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({
-      id,
-      data,
-    }: {
-      id: number;
-      data: Partial<CreateBrandRequest>;
-    }) => brandService.partialUpdateBrand(id, data),
+    mutationFn: ({ id, data }: { id: number; data: Partial<CreateBrandRequest> }) =>
+      brandService.partialUpdateBrand(id, data),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: brandsKeys.detail(variables.id),
-      });
-      void queryClient.invalidateQueries({ queryKey: brandsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: brandsKeys.detail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: brandsKeys.lists() });
     },
   });
 }
@@ -106,7 +96,7 @@ export function useDeleteBrand() {
   return useMutation({
     mutationFn: (id: number) => brandService.deleteBrand(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: brandsKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: brandsKeys.lists() });
     },
   });
 }

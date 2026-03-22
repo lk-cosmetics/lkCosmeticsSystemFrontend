@@ -12,7 +12,7 @@ export async function testBackendConnection(): Promise<{
 }> {
   try {
     console.log('🔍 Testing backend connection to:', API_CONFIG.BASE_URL);
-    
+
     const response = await fetch(API_CONFIG.BASE_URL, {
       method: 'GET',
       headers: {

@@ -1,18 +1,18 @@
 import { useCallback } from 'react';
-import { Link } from "react-router-dom";
-import { 
-  Eye, 
-  Pencil, 
-  Trash2, 
-  Ban, 
-  Search, 
+import { Link } from 'react-router-dom';
+import {
+  Eye,
+  Pencil,
+  Trash2,
+  Ban,
+  Search,
   Filter,
   MoreVertical,
   UserCheck,
   Mail,
   Phone,
   Shield,
-  Calendar
+  Calendar,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -61,6 +61,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useDialogs, useUserFilters, useUserActions } from '@/hooks';
+import { getMediaUrl } from '@/utils/helpers';
 
 type UserRole = 'admin' | 'user' | 'manager';
 type UserStatus = 'active' | 'blocked';
@@ -138,14 +139,16 @@ const mockUsers: User[] = [
 
 export default function UsersPage() {
   // Custom hooks for state management
-  const { dialogs, data, openDialog, closeDialog, setEditFormData } = useDialogs<User>();
-  
-  const { users, updateUser, deleteUser, toggleUserStatus } = useUserActions<User>({
-    initialUsers: mockUsers,
-    getUserId: (user) => user.id,
-    onSuccess: (message) => openDialog('success', undefined, message),
-    onError: (error) => console.error('User action failed:', error),
-  });
+  const { dialogs, data, openDialog, closeDialog, setEditFormData } =
+    useDialogs<User>();
+
+  const { users, updateUser, deleteUser, toggleUserStatus } =
+    useUserActions<User>({
+      initialUsers: mockUsers,
+      getUserId: user => user.id,
+      onSuccess: message => openDialog('success', undefined, message),
+      onError: error => console.error('User action failed:', error),
+    });
 
   const {
     filters,
@@ -155,19 +158,25 @@ export default function UsersPage() {
     setStatusFilter,
   } = useUserFilters<User>({
     users,
-    getSearchableFields: (user) => [user.firstName, user.lastName, user.email],
-    getRoleField: (user) => user.role,
-    getStatusField: (user) => user.status,
+    getSearchableFields: user => [user.firstName, user.lastName, user.email],
+    getRoleField: user => user.role,
+    getStatusField: user => user.status,
   });
 
   // Action handlers with callbacks
-  const handleView = useCallback((user: User) => {
-    openDialog('view', user);
-  }, [openDialog]);
+  const handleView = useCallback(
+    (user: User) => {
+      openDialog('view', user);
+    },
+    [openDialog]
+  );
 
-  const handleEdit = useCallback((user: User) => {
-    openDialog('edit', user);
-  }, [openDialog]);
+  const handleEdit = useCallback(
+    (user: User) => {
+      openDialog('edit', user);
+    },
+    [openDialog]
+  );
 
   const handleSaveEdit = useCallback(async () => {
     if (!data.editFormData) return;
@@ -176,9 +185,12 @@ export default function UsersPage() {
     closeDialog('edit');
   }, [data.editFormData, updateUser, closeDialog]);
 
-  const handleDelete = useCallback((user: User) => {
-    openDialog('delete', user);
-  }, [openDialog]);
+  const handleDelete = useCallback(
+    (user: User) => {
+      openDialog('delete', user);
+    },
+    [openDialog]
+  );
 
   const confirmDelete = useCallback(async () => {
     if (!data.userToDelete) return;
@@ -187,9 +199,12 @@ export default function UsersPage() {
     closeDialog('delete');
   }, [data.userToDelete, deleteUser, closeDialog]);
 
-  const handleBlock = useCallback((user: User) => {
-    openDialog('block', user);
-  }, [openDialog]);
+  const handleBlock = useCallback(
+    (user: User) => {
+      openDialog('block', user);
+    },
+    [openDialog]
+  );
 
   const confirmBlock = useCallback(async () => {
     if (!data.userToBlock) return;
@@ -215,7 +230,9 @@ export default function UsersPage() {
       <div className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Users Management</h1>
+            <h1 className="text-3xl font-bold tracking-tight">
+              Users Management
+            </h1>
             <p className="text-l-text-2 dark:text-d-text-2 mt-2">
               Manage user accounts, roles, and permissions
             </p>
@@ -237,7 +254,7 @@ export default function UsersPage() {
               <Input
                 placeholder="Search by name or email..."
                 value={filters.searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
+                onChange={e => setSearchQuery(e.target.value)}
                 className="pl-10"
               />
             </div>
@@ -257,7 +274,10 @@ export default function UsersPage() {
             </Select>
 
             {/* Status Filter */}
-            <Select value={filters.statusFilter} onValueChange={setStatusFilter}>
+            <Select
+              value={filters.statusFilter}
+              onValueChange={setStatusFilter}
+            >
               <SelectTrigger className="w-full md:w-[180px]">
                 <Filter className="size-4 mr-2" />
                 <SelectValue placeholder="Filter by status" />
@@ -271,7 +291,9 @@ export default function UsersPage() {
           </div>
 
           <div className="mt-4 flex items-center gap-2 text-sm text-l-text-2 dark:text-d-text-2">
-            <span>Showing {filteredUsers.length} of {users.length} users</span>
+            <span>
+              Showing {filteredUsers.length} of {users.length} users
+            </span>
           </div>
         </Card>
       </div>
@@ -292,20 +314,27 @@ export default function UsersPage() {
           <TableBody>
             {filteredUsers.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="text-center py-8 text-l-text-2 dark:text-d-text-2">
+                <TableCell
+                  colSpan={6}
+                  className="text-center py-8 text-l-text-2 dark:text-d-text-2"
+                >
                   No users found
                 </TableCell>
               </TableRow>
             ) : (
-              filteredUsers.map((user) => (
+              filteredUsers.map(user => (
                 <TableRow key={user.id}>
                   {/* User Info */}
                   <TableCell>
                     <div className="flex items-center gap-3">
                       <Avatar className="size-10">
-                        <AvatarImage src={user.avatar} alt={`${user.firstName} ${user.lastName}`} />
+                        <AvatarImage
+                          src={getMediaUrl(user.avatar) || ''}
+                          alt={`${user.firstName} ${user.lastName}`}
+                        />
                         <AvatarFallback>
-                          {user.firstName[0]}{user.lastName[0]}
+                          {user.firstName[0]}
+                          {user.lastName[0]}
                         </AvatarFallback>
                       </Avatar>
                       <div>
@@ -324,18 +353,25 @@ export default function UsersPage() {
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2 text-sm">
                         <Mail className="size-3 text-l-text-3 dark:text-d-text-3" />
-                        <span className="text-l-text-2 dark:text-d-text-2">{user.email}</span>
+                        <span className="text-l-text-2 dark:text-d-text-2">
+                          {user.email}
+                        </span>
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <Phone className="size-3 text-l-text-3 dark:text-d-text-3" />
-                        <span className="text-l-text-2 dark:text-d-text-2">{user.phone}</span>
+                        <span className="text-l-text-2 dark:text-d-text-2">
+                          {user.phone}
+                        </span>
                       </div>
                     </div>
                   </TableCell>
 
                   {/* Role */}
                   <TableCell>
-                    <Badge variant={getRoleBadgeVariant(user.role)} className="capitalize">
+                    <Badge
+                      variant={getRoleBadgeVariant(user.role)}
+                      className="capitalize"
+                    >
                       <Shield className="size-3 mr-1" />
                       {user.role}
                     </Badge>
@@ -344,7 +380,9 @@ export default function UsersPage() {
                   {/* Status */}
                   <TableCell>
                     <Badge
-                      variant={user.status === 'active' ? 'default' : 'destructive'}
+                      variant={
+                        user.status === 'active' ? 'default' : 'destructive'
+                      }
                       className="capitalize"
                     >
                       {user.status}
@@ -383,7 +421,7 @@ export default function UsersPage() {
                           {user.status === 'active' ? 'Block' : 'Unblock'} User
                         </DropdownMenuItem>
                         <DropdownMenuSeparator />
-                        <DropdownMenuItem 
+                        <DropdownMenuItem
                           onClick={() => handleDelete(user)}
                           className="text-red-600 dark:text-red-400"
                         >
@@ -409,15 +447,19 @@ export default function UsersPage() {
               Complete information about the user account
             </DialogDescription>
           </DialogHeader>
-          
+
           {data.selectedUser && (
             <div className="space-y-6">
               {/* Avatar and Name */}
               <div className="flex items-center gap-4 pb-4 border-b">
                 <Avatar className="size-20">
-                  <AvatarImage src={data.selectedUser.avatar} alt={`${data.selectedUser.firstName} ${data.selectedUser.lastName}`} />
+                  <AvatarImage
+                    src={getMediaUrl(data.selectedUser.avatar) || ''}
+                    alt={`${data.selectedUser.firstName} ${data.selectedUser.lastName}`}
+                  />
                   <AvatarFallback className="text-lg">
-                    {data.selectedUser.firstName[0]}{data.selectedUser.lastName[0]}
+                    {data.selectedUser.firstName[0]}
+                    {data.selectedUser.lastName[0]}
                   </AvatarFallback>
                 </Avatar>
                 <div>
@@ -425,11 +467,18 @@ export default function UsersPage() {
                     {data.selectedUser.firstName} {data.selectedUser.lastName}
                   </h3>
                   <div className="flex items-center gap-2 mt-2">
-                    <Badge variant={getRoleBadgeVariant(data.selectedUser.role)} className="capitalize">
+                    <Badge
+                      variant={getRoleBadgeVariant(data.selectedUser.role)}
+                      className="capitalize"
+                    >
                       {data.selectedUser.role}
                     </Badge>
                     <Badge
-                      variant={data.selectedUser.status === 'active' ? 'default' : 'destructive'}
+                      variant={
+                        data.selectedUser.status === 'active'
+                          ? 'default'
+                          : 'destructive'
+                      }
                       className="capitalize"
                     >
                       {data.selectedUser.status}
@@ -441,7 +490,9 @@ export default function UsersPage() {
               {/* User Information */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-l-text-2 dark:text-d-text-2">Email</label>
+                  <label className="text-sm font-medium text-l-text-2 dark:text-d-text-2">
+                    Email
+                  </label>
                   <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                     <Mail className="size-4 text-l-text-3 dark:text-d-text-3" />
                     <span className="text-sm">{data.selectedUser.email}</span>
@@ -449,7 +500,9 @@ export default function UsersPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-l-text-2 dark:text-d-text-2">Phone</label>
+                  <label className="text-sm font-medium text-l-text-2 dark:text-d-text-2">
+                    Phone
+                  </label>
                   <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                     <Phone className="size-4 text-l-text-3 dark:text-d-text-3" />
                     <span className="text-sm">{data.selectedUser.phone}</span>
@@ -457,30 +510,43 @@ export default function UsersPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-l-text-2 dark:text-d-text-2">Role</label>
+                  <label className="text-sm font-medium text-l-text-2 dark:text-d-text-2">
+                    Role
+                  </label>
                   <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                     <Shield className="size-4 text-l-text-3 dark:text-d-text-3" />
-                    <span className="text-sm capitalize">{data.selectedUser.role}</span>
+                    <span className="text-sm capitalize">
+                      {data.selectedUser.role}
+                    </span>
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-l-text-2 dark:text-d-text-2">Joined Date</label>
+                  <label className="text-sm font-medium text-l-text-2 dark:text-d-text-2">
+                    Joined Date
+                  </label>
                   <div className="flex items-center gap-2 p-3 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg">
                     <Calendar className="size-4 text-l-text-3 dark:text-d-text-3" />
-                    <span className="text-sm">{new Date(data.selectedUser.createdAt).toLocaleDateString()}</span>
+                    <span className="text-sm">
+                      {new Date(
+                        data.selectedUser.createdAt
+                      ).toLocaleDateString()}
+                    </span>
                   </div>
                 </div>
               </div>
 
               {/* Action Buttons */}
               <div className="flex gap-3 pt-4 border-t">
-                <Button onClick={() => handleEdit(data.selectedUser!)} className="flex-1 gap-2">
+                <Button
+                  onClick={() => handleEdit(data.selectedUser!)}
+                  className="flex-1 gap-2"
+                >
                   <Pencil className="size-4" />
                   Edit User
                 </Button>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   onClick={() => {
                     handleBlock(data.selectedUser!);
                     closeDialog('view');
@@ -497,14 +563,20 @@ export default function UsersPage() {
       </Dialog>
 
       {/* Delete Confirmation Dialog */}
-      <AlertDialog open={dialogs.delete} onOpenChange={() => closeDialog('delete')}>
+      <AlertDialog
+        open={dialogs.delete}
+        onOpenChange={() => closeDialog('delete')}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete User</AlertDialogTitle>
             <AlertDialogDescription>
               Are you sure you want to delete{' '}
-              <strong>{data.userToDelete?.firstName} {data.userToDelete?.lastName}</strong>?
-              This action cannot be undone and will permanently remove the user account.
+              <strong>
+                {data.userToDelete?.firstName} {data.userToDelete?.lastName}
+              </strong>
+              ? This action cannot be undone and will permanently remove the
+              user account.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -520,16 +592,23 @@ export default function UsersPage() {
       </AlertDialog>
 
       {/* Block/Unblock Confirmation Dialog */}
-      <AlertDialog open={dialogs.block} onOpenChange={() => closeDialog('block')}>
+      <AlertDialog
+        open={dialogs.block}
+        onOpenChange={() => closeDialog('block')}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
               {data.userToBlock?.status === 'active' ? 'Block' : 'Unblock'} User
             </AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to {data.userToBlock?.status === 'active' ? 'block' : 'unblock'}{' '}
-              <strong>{data.userToBlock?.firstName} {data.userToBlock?.lastName}</strong>?
-              {data.userToBlock?.status === 'active' 
+              Are you sure you want to{' '}
+              {data.userToBlock?.status === 'active' ? 'block' : 'unblock'}{' '}
+              <strong>
+                {data.userToBlock?.firstName} {data.userToBlock?.lastName}
+              </strong>
+              ?
+              {data.userToBlock?.status === 'active'
                 ? ' This will prevent them from accessing their account.'
                 : ' This will restore their account access.'}
             </AlertDialogDescription>
@@ -558,15 +637,22 @@ export default function UsersPage() {
               {/* Avatar Preview */}
               <div className="flex items-center gap-4 pb-4 border-b">
                 <Avatar className="size-16">
-                  <AvatarImage src={data.editFormData.avatar} alt={`${data.editFormData.firstName} ${data.editFormData.lastName}`} />
+                  <AvatarImage
+                    src={getMediaUrl(data.editFormData.avatar) || ''}
+                    alt={`${data.editFormData.firstName} ${data.editFormData.lastName}`}
+                  />
                   <AvatarFallback>
-                    {data.editFormData.firstName[0]}{data.editFormData.lastName[0]}
+                    {data.editFormData.firstName[0]}
+                    {data.editFormData.lastName[0]}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <p className="text-sm text-l-text-2 dark:text-d-text-2">User ID: {data.editFormData.id}</p>
+                  <p className="text-sm text-l-text-2 dark:text-d-text-2">
+                    User ID: {data.editFormData.id}
+                  </p>
                   <p className="text-xs text-l-text-3 dark:text-d-text-3">
-                    Joined: {new Date(data.editFormData.createdAt).toLocaleDateString()}
+                    Joined:{' '}
+                    {new Date(data.editFormData.createdAt).toLocaleDateString()}
                   </p>
                 </div>
               </div>
@@ -578,8 +664,11 @@ export default function UsersPage() {
                   <Input
                     id="edit-firstName"
                     value={data.editFormData.firstName}
-                    onChange={(e) =>
-                      setEditFormData({ ...data.editFormData!, firstName: e.target.value })
+                    onChange={e =>
+                      setEditFormData({
+                        ...data.editFormData!,
+                        firstName: e.target.value,
+                      })
                     }
                     placeholder="First name"
                   />
@@ -590,8 +679,11 @@ export default function UsersPage() {
                   <Input
                     id="edit-lastName"
                     value={data.editFormData.lastName}
-                    onChange={(e) =>
-                      setEditFormData({ ...data.editFormData!, lastName: e.target.value })
+                    onChange={e =>
+                      setEditFormData({
+                        ...data.editFormData!,
+                        lastName: e.target.value,
+                      })
                     }
                     placeholder="Last name"
                   />
@@ -603,8 +695,11 @@ export default function UsersPage() {
                     id="edit-email"
                     type="email"
                     value={data.editFormData.email}
-                    onChange={(e) =>
-                      setEditFormData({ ...data.editFormData!, email: e.target.value })
+                    onChange={e =>
+                      setEditFormData({
+                        ...data.editFormData!,
+                        email: e.target.value,
+                      })
                     }
                     placeholder="Email address"
                   />
@@ -616,8 +711,11 @@ export default function UsersPage() {
                     id="edit-phone"
                     type="tel"
                     value={data.editFormData.phone}
-                    onChange={(e) =>
-                      setEditFormData({ ...data.editFormData!, phone: e.target.value })
+                    onChange={e =>
+                      setEditFormData({
+                        ...data.editFormData!,
+                        phone: e.target.value,
+                      })
                     }
                     placeholder="Phone number"
                   />
@@ -680,7 +778,10 @@ export default function UsersPage() {
       </Dialog>
 
       {/* Success Dialog */}
-      <AlertDialog open={dialogs.success} onOpenChange={() => closeDialog('success')}>
+      <AlertDialog
+        open={dialogs.success}
+        onOpenChange={() => closeDialog('success')}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle className="text-green-600 dark:text-green-500">

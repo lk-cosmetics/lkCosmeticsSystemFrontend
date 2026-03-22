@@ -240,23 +240,34 @@ export interface TokenRefreshResponse {
 }
 
 // Company Types
-export interface Company {
+/**
+ * Lightweight company data returned by the list endpoint
+ * (GET /api/v1/company/) via CompanyListSerializer.
+ */
+export interface CompanyListItem {
   id: number;
   name: string;
-  legal_name: string;
   abbreviation: string;
   logo: string | null;
+  city: string;
+  is_active: boolean;
+  brands_count?: number;
+}
+
+/**
+ * Full company data returned by detail/create/update endpoints
+ * (GET /api/v1/company/{id}/) via CompanyDetailSerializer.
+ */
+export interface Company extends CompanyListItem {
+  legal_name: string;
   email: string;
   phone: string;
   address?: string;
-  city: string;
   matricule_fiscale?: string;
   registre_commerce?: string;
   activity_code?: string;
   bank_name?: string;
   rib?: string;
-  is_active: boolean;
-  brands_count?: number;
   created_at: string;
   updated_at: string;
 }

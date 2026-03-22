@@ -28,41 +28,43 @@ interface Notification {
 
 export default function NotificationsPage() {
   // Load notifications from JSON file
-  const [notifications, setNotifications] = useState<Notification[]>(notificationsData as Notification[]);
+  const [notifications, setNotifications] = useState<Notification[]>(
+    notificationsData as Notification[]
+  );
 
   const [filterType, setFilterType] = useState<string>('all');
 
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter(n => !n.read).length;
 
   // Filter notifications
   const filteredNotifications =
     filterType === 'all'
       ? notifications
-      : notifications.filter((n) => n.type === filterType);
+      : notifications.filter(n => n.type === filterType);
 
-  const unreadNotifications = filteredNotifications.filter((n) => !n.read);
-  const readNotifications = filteredNotifications.filter((n) => n.read);
+  const unreadNotifications = filteredNotifications.filter(n => !n.read);
+  const readNotifications = filteredNotifications.filter(n => n.read);
 
   // Mark notification as read
   const markAsRead = (id: number) => {
     setNotifications(
-      notifications.map((n) => (n.id === id ? { ...n, read: true } : n))
+      notifications.map(n => (n.id === id ? { ...n, read: true } : n))
     );
   };
 
   // Mark all as read
   const markAllAsRead = () => {
-    setNotifications(notifications.map((n) => ({ ...n, read: true })));
+    setNotifications(notifications.map(n => ({ ...n, read: true })));
   };
 
   // Delete notification
   const deleteNotification = (id: number) => {
-    setNotifications(notifications.filter((n) => n.id !== id));
+    setNotifications(notifications.filter(n => n.id !== id));
   };
 
   // Clear all read notifications
   const clearAllRead = () => {
-    setNotifications(notifications.filter((n) => !n.read));
+    setNotifications(notifications.filter(n => !n.read));
   };
 
   // Get notification type badge variant
@@ -82,7 +84,11 @@ export default function NotificationsPage() {
   };
 
   // Notification card component
-  const NotificationCard = ({ notification }: { notification: Notification }) => {
+  const NotificationCard = ({
+    notification,
+  }: {
+    notification: Notification;
+  }) => {
     const typeBadge = getTypeBadge(notification.type);
 
     return (
@@ -103,7 +109,9 @@ export default function NotificationsPage() {
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2 mb-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-semibold text-base">{notification.title}</h3>
+                <h3 className="font-semibold text-base">
+                  {notification.title}
+                </h3>
                 <Badge variant={typeBadge.variant} className="text-xs">
                   {typeBadge.label}
                 </Badge>
@@ -224,14 +232,19 @@ export default function NotificationsPage() {
           <TabsTrigger value="unread">
             Unread ({unreadNotifications.length})
           </TabsTrigger>
-          <TabsTrigger value="read">Read ({readNotifications.length})</TabsTrigger>
+          <TabsTrigger value="read">
+            Read ({readNotifications.length})
+          </TabsTrigger>
         </TabsList>
 
         {/* All Notifications */}
         <TabsContent value="all" className="space-y-4 mt-6">
           {filteredNotifications.length > 0 ? (
-            filteredNotifications.map((notification) => (
-              <NotificationCard key={notification.id} notification={notification} />
+            filteredNotifications.map(notification => (
+              <NotificationCard
+                key={notification.id}
+                notification={notification}
+              />
             ))
           ) : (
             <Card className="p-12 text-center">
@@ -246,8 +259,11 @@ export default function NotificationsPage() {
         {/* Unread Notifications */}
         <TabsContent value="unread" className="space-y-4 mt-6">
           {unreadNotifications.length > 0 ? (
-            unreadNotifications.map((notification) => (
-              <NotificationCard key={notification.id} notification={notification} />
+            unreadNotifications.map(notification => (
+              <NotificationCard
+                key={notification.id}
+                notification={notification}
+              />
             ))
           ) : (
             <Card className="p-12 text-center">
@@ -265,8 +281,11 @@ export default function NotificationsPage() {
         {/* Read Notifications */}
         <TabsContent value="read" className="space-y-4 mt-6">
           {readNotifications.length > 0 ? (
-            readNotifications.map((notification) => (
-              <NotificationCard key={notification.id} notification={notification} />
+            readNotifications.map(notification => (
+              <NotificationCard
+                key={notification.id}
+                notification={notification}
+              />
             ))
           ) : (
             <Card className="p-12 text-center">

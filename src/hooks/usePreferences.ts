@@ -48,13 +48,13 @@ export function useSidebarState() {
 
 /**
  * Example Usage:
- * 
+ *
  * function MyComponent() {
  *   const [brand, setBrand] = useActiveBrand();
  *   const [theme, setTheme] = useThemePreference();
  *   const [language, setLanguage] = useLanguagePreference();
  *   const [isCollapsed, setCollapsed] = useSidebarState();
- * 
+ *
  *   return (
  *     <div>
  *       <button onClick={() => setBrand(1)}>Select Brand 1</button>

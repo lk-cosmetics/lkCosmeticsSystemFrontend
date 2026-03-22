@@ -1,35 +1,14 @@
 /**
- * POSPage – "Method B" cashier UI.
- * Lets a user pick a sales channel, search products, add them to a cart,
- * optionally attach a customer, then submit.  The resulting JSON mirrors
- * the WooCommerce order shape so the backend OrderIngestionService can
- * process it through the same pipeline.
+ * POSPage – Modern POS cashier UI.
+ * Responsive layout: desktop side-by-side, mobile bottom drawer.
+ * Features: product browser, cart, calculator, receipt/invoice printing,
+ *           barcode scanner support.
  */
-import { useEffect, useState, useCallback, useMemo } from 'react';
-import {
-  IconShoppingCart,
-  IconSearch,
-  IconPlus,
-  IconMinus,
-  IconTrash,
-  IconCash,
-  IconReceipt,
-} from '@tabler/icons-react';
-import { CheckCircle } from 'lucide-react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
+import { Loader2, ShoppingCart, AlertTriangle } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import {
   Dialog,
   DialogContent,
@@ -39,15 +18,15 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from '@/components/ui/drawer';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { useDebounce } from '@/hooks/useDebounce';
+import { useInfiniteProducts } from '@/hooks/queries/useProducts';
 
-import { productService } from '@/services/product.service';
 import { salesChannelService } from '@/services/salesChannel.service';
 import { clientService } from '@/services/client.service';
 import { orderService } from '@/services/order.service';
@@ -55,110 +34,74 @@ import type {
   ProductListItem,
   SalesChannel,
   Client,
+  OrderDetail,
   POSOrderCreateRequest,
 } from '@/types';
-import { getMediaUrl } from '@/utils/helpers';
 
-/* ─── types local to POS ─── */
+import { POSProductGrid } from './pos/POSProductGrid';
+import { POSCart } from './pos/POSCart';
+import { POSPostOrderDialog } from './pos/POSPostOrderDialog';
+import { POSReceiptPrint } from './pos/POSReceiptPrint';
+import { POSInvoicePrint } from './pos/POSInvoicePrint';
+import {
+  getEffectivePrice,
+  fmtTND,
+  type CartLine,
+  type PrintableOrderData,
+} from './pos/types';
 
-interface CartLine {
-  product: ProductListItem;
-  quantity: number;
-}
+import './pos/pos-print.css';
 
-/* ─── small extracted components ─── */
-
-function CartRow({
-  line,
-  onQty,
-  onRemove,
-}: Readonly<{
-  line: CartLine;
-  onQty: (id: number, delta: number) => void;
-  onRemove: (id: number) => void;
-}>) {
-  const lineTotal = (line.quantity * Number(line.product.sales_price)).toFixed(
-    2
-  );
-  return (
-    <TableRow>
-      <TableCell className="font-medium text-sm">{line.product.name}</TableCell>
-      <TableCell className="text-xs text-muted-foreground">
-        {line.product.barcode || '—'}
-      </TableCell>
-      <TableCell className="text-right">{line.product.sales_price}</TableCell>
-      <TableCell>
-        <div className="flex items-center gap-1 justify-center">
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => onQty(line.product.id, -1)}
-          >
-            <IconMinus className="h-3 w-3" />
-          </Button>
-          <span className="w-8 text-center font-semibold">{line.quantity}</span>
-          <Button
-            variant="outline"
-            size="icon"
-            className="h-6 w-6"
-            onClick={() => onQty(line.product.id, 1)}
-          >
-            <IconPlus className="h-3 w-3" />
-          </Button>
-        </div>
-      </TableCell>
-      <TableCell className="text-right font-semibold">{lineTotal}</TableCell>
-      <TableCell className="text-right">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-6 w-6"
-          onClick={() => onRemove(line.product.id)}
-        >
-          <IconTrash className="h-4 w-4 text-red-500" />
-        </Button>
-      </TableCell>
-    </TableRow>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════════════ */
 
 export default function POSPage() {
-  /* ── data sources ────────────────────────────────────────────────────── */
+  const isMobile = useIsMobile();
+
+  /* ── Data sources ──────────────────────────────────────────────────── */
   const [channels, setChannels] = useState<SalesChannel[]>([]);
-  const [products, setProducts] = useState<ProductListItem[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [dataLoading, setDataLoading] = useState(true);
 
-  /* ── selections ──────────────────────────────────────────────────────── */
-  const [channelId, setChannelId] = useState<string>('');
-  const [clientId, setClientId] = useState<string>('');
+  /* ── Selections ────────────────────────────────────────────────────── */
+  const [channelId, setChannelId] = useState('');
+  const [clientId, setClientId] = useState('');
   const [productSearch, setProductSearch] = useState('');
-  const [cart, setCart] = useState<CartLine[]>([]);
+  const debouncedProductSearch = useDebounce(productSearch, 500);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [customerNote, setCustomerNote] = useState('');
 
-  /* ── result dialog ──────────────────────────────────────────────────── */
+  /* ── Cart ───────────────────────────────────────────────────────────── */
+  const [cart, setCart] = useState<CartLine[]>([]);
+  const [amountReceived, setAmountReceived] = useState(0);
+
+  /* ── Order submission ──────────────────────────────────────────────── */
   const [submitting, setSubmitting] = useState(false);
-  const [successOrder, setSuccessOrder] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  /* ── load reference data ────────────────────────────────────────────── */
+  /* ── Post-order flow ───────────────────────────────────────────────── */
+  const [completedOrder, setCompletedOrder] = useState<OrderDetail | null>(null);
+  const [printData, setPrintData] = useState<PrintableOrderData | null>(null);
+  const [printMode, setPrintMode] = useState<'receipt' | 'invoice' | null>(null);
+
+  /* ── Mobile drawer ─────────────────────────────────────────────────── */
+  const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
+
+  /* ── Barcode scanner buffer ────────────────────────────────────────── */
+  const barcodeBuffer = useRef('');
+  const barcodeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  /* ── Load reference data ───────────────────────────────────────────── */
   const fetchRef = useCallback(async () => {
     setDataLoading(true);
     try {
-      const [chRes, prRes, clRes] = await Promise.all([
+      const [chRes, clRes] = await Promise.all([
         salesChannelService.getAllChannels(),
-        productService.getAllProducts({ page_size: 1000 }),
         clientService.getAll({ page_size: 1000 }),
       ]);
       setChannels(chRes);
-      setProducts(prRes);
       setClients(clRes.results ?? clRes);
     } catch (err) {
-      console.error(err);
+      console.error('Failed to load POS data:', err);
     } finally {
       setDataLoading(false);
     }
@@ -168,69 +111,128 @@ export default function POSPage() {
     fetchRef();
   }, [fetchRef]);
 
-  /* ── channel-filtered products (show products of the channel's brand) ─ */
-  const channelProducts = useMemo(() => {
-    if (!channelId) return [];
-    const ch = channels.find(c => c.id === Number(channelId));
-    if (!ch) return [];
-    let items = products.filter(p => p.brand === ch.brand);
-    if (productSearch) {
-      const q = productSearch.toLowerCase();
-      items = items.filter(
-        p =>
-          p.name.toLowerCase().includes(q) ||
-          (p.barcode ?? '').toLowerCase().includes(q)
-      );
-    }
-    return items;
-  }, [products, channels, channelId, productSearch]);
+  /* ── Channel-filtered products ─────────────────────────────────────── */
+  const {
+    data: productsData,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading: isProductsLoading,
+  } = useInfiniteProducts({
+    sales_channel: channelId ? Number(channelId) : undefined,
+    search: debouncedProductSearch || undefined,
+    page_size: 20,
+    enabled: !!channelId, // Only fetch when a channel is selected
+  });
 
-  /* ── cart helpers ────────────────────────────────────────────────────── */
-  const addToCart = (product: ProductListItem) => {
+  const channelProducts = useMemo(() => {
+    if (!channelId || !productsData?.pages) return [];
+    return productsData.pages.flatMap(page => page?.results ?? []);
+  }, [channelId, productsData?.pages]);
+
+  /* ── Cart quantity map (for product card badges) ───────────────────── */
+  const cartQuantities = useMemo(
+    () => new Map(cart.map(l => [l.product.id, l.quantity])),
+    [cart],
+  );
+
+  /* ── Cart helpers ──────────────────────────────────────────────────── */
+  const addToCart = useCallback((product: ProductListItem) => {
     setCart(prev => {
       const existing = prev.find(l => l.product.id === product.id);
       if (existing) {
         return prev.map(l =>
-          l.product.id === product.id ? { ...l, quantity: l.quantity + 1 } : l
+          l.product.id === product.id
+            ? { ...l, quantity: l.quantity + 1 }
+            : l,
         );
       }
       return [...prev, { product, quantity: 1 }];
     });
-  };
+  }, []);
 
-  const changeQty = (productId: number, delta: number) => {
+  const changeQty = useCallback((productId: number, delta: number) => {
     setCart(prev =>
       prev
         .map(l =>
           l.product.id === productId
             ? { ...l, quantity: Math.max(0, l.quantity + delta) }
-            : l
+            : l,
         )
-        .filter(l => l.quantity > 0)
+        .filter(l => l.quantity > 0),
     );
-  };
+  }, []);
 
-  const removeFromCart = (productId: number) =>
-    setCart(prev => prev.filter(l => l.product.id !== productId));
-
-  const cartTotal = useMemo(
-    () =>
-      cart.reduce(
-        (sum, l) => sum + l.quantity * Number(l.product.sales_price),
-        0
-      ),
-    [cart]
+  const removeFromCart = useCallback(
+    (productId: number) =>
+      setCart(prev => prev.filter(l => l.product.id !== productId)),
+    [],
   );
 
-  /* ── submit order ───────────────────────────────────────────────────── */
-  const handleSubmit = async () => {
+  const clearCart = useCallback(() => setCart([]), []);
+
+  const cartTotal = useMemo(
+    () => cart.reduce((sum, l) => sum + l.quantity * getEffectivePrice(l.product), 0),
+    [cart],
+  );
+
+  const cartItemCount = useMemo(
+    () => cart.reduce((sum, l) => sum + l.quantity, 0),
+    [cart],
+  );
+
+  const changeAmount = useMemo(
+    () => Math.max(0, amountReceived - cartTotal),
+    [amountReceived, cartTotal],
+  );
+
+  /* ── Barcode scanner (keyboard input detection) ────────────────────── */
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInput =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target.isContentEditable;
+
+      // Only intercept when no input is focused
+      if (isInput) return;
+
+      if (e.key === 'Enter' && barcodeBuffer.current.length >= 3) {
+        const barcode = barcodeBuffer.current;
+        barcodeBuffer.current = '';
+
+        const product = channelProducts.find(
+          p => p.barcode?.toLowerCase() === barcode.toLowerCase(),
+        );
+        if (product) addToCart(product);
+      } else if (e.key.length === 1) {
+        barcodeBuffer.current += e.key;
+        clearTimeout(barcodeTimer.current);
+        barcodeTimer.current = setTimeout(() => {
+          barcodeBuffer.current = '';
+        }, 150);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      clearTimeout(barcodeTimer.current);
+    };
+  }, [channelProducts, addToCart]);
+
+  /* ── Submit order ──────────────────────────────────────────────────── */
+  const handleSubmit = useCallback(async () => {
     if (!channelId || cart.length === 0) return;
     setSubmitting(true);
     setErrorMsg(null);
 
     const selectedClient = clientId
       ? clients.find(c => c.id === Number(clientId))
-      : null;
+      : undefined;
+
+    const currentChannel = channels.find(c => c.id === Number(channelId));
 
     const payload: POSOrderCreateRequest = {
       sales_channel: Number(channelId),
@@ -248,11 +250,16 @@ export default function POSPage() {
         name: l.product.name,
         sku: l.product.barcode ?? '',
         quantity: l.quantity,
-        price: l.product.sales_price,
-        total: (l.quantity * Number(l.product.sales_price)).toFixed(2),
+        price: getEffectivePrice(l.product).toFixed(2),
+        total: (l.quantity * getEffectivePrice(l.product)).toFixed(2),
       })),
       payment_method: paymentMethod,
-      payment_method_title: paymentMethod === 'cash' ? 'Cash' : paymentMethod,
+      payment_method_title:
+        paymentMethod === 'cash'
+          ? 'Cash'
+          : paymentMethod === 'card'
+            ? 'Card'
+            : 'Bank Transfer',
       customer_note: customerNote,
       status: 'completed',
       total: cartTotal.toFixed(2),
@@ -260,265 +267,193 @@ export default function POSPage() {
 
     try {
       const result = await orderService.createPOS(payload);
-      setSuccessOrder(result.order_number);
+
+      // Snapshot print data BEFORE clearing state (fixes stale clientId bug)
+      setPrintData({
+        order: result,
+        channel: currentChannel,
+        client: selectedClient,
+        paymentMethod,
+        amountReceived,
+        changeAmount,
+      });
+
+      setCompletedOrder(result);
+
+      // Reset form state
       setCart([]);
       setCustomerNote('');
       setClientId('');
+      if (isMobile) setCartDrawerOpen(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       setErrorMsg(msg);
     } finally {
       setSubmitting(false);
     }
+  }, [
+    channelId, cart, clientId, clients, channels,
+    paymentMethod, customerNote, cartTotal, amountReceived, changeAmount,
+    isMobile,
+  ]);
+
+  /* ── Print handlers ────────────────────────────────────────────────── */
+  const handlePrint = useCallback((mode: 'receipt' | 'invoice') => {
+    setPrintMode(mode);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        window.print();
+      });
+    });
+  }, []);
+
+  const handleClosePostOrder = useCallback(() => {
+    setCompletedOrder(null);
+    setPrintData(null);
+    setPrintMode(null);
+    setAmountReceived(0);
+  }, []);
+
+  // Reset printMode after printing
+  useEffect(() => {
+    const handler = () => setPrintMode(null);
+    window.addEventListener('afterprint', handler);
+    return () => window.removeEventListener('afterprint', handler);
+  }, []);
+
+  /* ── Channel change handler ────────────────────────────────────────── */
+  const handleChannelChange = useCallback((v: string) => {
+    setChannelId(v);
+    setCart([]);
+    setAmountReceived(0);
+  }, []);
+
+  /* ── Shared cart props ─────────────────────────────────────────────── */
+  const cartProps = {
+    cart,
+    cartTotal,
+    cartItemCount,
+    onQtyChange: changeQty,
+    onRemove: removeFromCart,
+    onClearCart: clearCart,
+    clients,
+    clientId,
+    onClientChange: setClientId,
+    paymentMethod,
+    onPaymentMethodChange: setPaymentMethod,
+    customerNote,
+    onNoteChange: setCustomerNote,
+    amountReceived,
+    onAmountReceivedChange: setAmountReceived,
+    onSubmit: handleSubmit,
+    submitting,
+    disabled: cart.length === 0 || !channelId,
   };
 
-  /* ── render ──────────────────────────────────────────────────────────── */
+  /* ── Loading state ─────────────────────────────────────────────────── */
   if (dataLoading) {
     return (
-      <div className="flex items-center justify-center h-64 text-muted-foreground">
-        Loading POS data…
+      <div className="flex items-center justify-center h-64 text-muted-foreground gap-2">
+        <Loader2 className="size-5 animate-spin" />
+        Loading POS...
       </div>
     );
   }
 
+  /* ── Render ─────────────────────────────────────────────────────────── */
   return (
-    <div className="flex gap-6 p-6 h-[calc(100vh-64px)]">
-      {/* ── LEFT: product browser ──────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col gap-4 overflow-hidden">
-        <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <IconCash className="h-6 w-6" /> Point of Sale
-          </h1>
-          <p className="text-muted-foreground text-sm">
-            Select products, add to cart, submit order
-          </p>
-        </div>
-
-        {/* channel picker */}
-        <div className="flex gap-3 items-end">
-          <div className="w-60">
-            <Label className="text-xs">Sales Channel *</Label>
-            <Select
-              value={channelId}
-              onValueChange={v => {
-                setChannelId(v);
-                setCart([]);
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Pick a channel" />
-              </SelectTrigger>
-              <SelectContent>
-                {channels.map(ch => (
-                  <SelectItem key={ch.id} value={String(ch.id)}>
-                    {ch.name} ({ch.channel_type})
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="relative flex-1">
-            <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search products by name or barcode…"
-              className="pl-9"
-              value={productSearch}
-              onChange={e => setProductSearch(e.target.value)}
-              disabled={!channelId}
-            />
-          </div>
-        </div>
-
-        {/* product grid */}
-        <div className="flex-1 overflow-y-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-          {!channelId && (
-            <p className="col-span-full text-center text-muted-foreground py-10">
-              Select a sales channel to see products
-            </p>
-          )}
-          {channelId && channelProducts.length === 0 && (
-            <p className="col-span-full text-center text-muted-foreground py-10">
-              No products found
-            </p>
-          )}
-          {channelProducts.map(p => (
-            <Card
-              key={p.id}
-              className="cursor-pointer hover:border-primary transition-colors"
-              onClick={() => addToCart(p)}
-            >
-              {p.image_url ? (
-                <img
-                  src={getMediaUrl(p.image_url)}
-                  alt={p.name}
-                  className="h-24 w-full object-cover rounded-t-lg"
-                  loading="lazy"
-                  onError={e => {
-                    e.currentTarget.style.display = 'none';
-                    const fallback = e.currentTarget
-                      .nextElementSibling as HTMLElement | null;
-                    if (fallback) fallback.style.display = 'flex';
-                  }}
-                />
-              ) : (
-                <div className="h-24 bg-muted flex items-center justify-center rounded-t-lg text-muted-foreground text-xs">
-                  No image
-                </div>
-              )}
-              {p.image_url ? (
-                <div
-                  className="h-24 bg-muted items-center justify-center rounded-t-lg text-muted-foreground text-xs"
-                  style={{ display: 'none' }}
-                >
-                  No image
-                </div>
-              ) : null}
-              <CardContent className="p-3">
-                <p className="text-sm font-medium truncate">{p.name}</p>
-                <p className="text-xs text-muted-foreground">
-                  {p.barcode || '—'}
-                </p>
-                <p className="text-sm font-bold mt-1">TND {p.sales_price}</p>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </div>
-
-      {/* ── RIGHT: cart ────────────────────────────────────────────────── */}
-      <div className="w-[420px] flex flex-col gap-4 border-l pl-6 overflow-hidden">
-        <h2 className="text-lg font-semibold flex items-center gap-2">
-          <IconShoppingCart className="h-5 w-5" /> Cart
-          <Badge variant="outline" className="ml-auto">
-            {cart.length} items
-          </Badge>
-        </h2>
-
-        {/* cart table */}
-        <div className="flex-1 overflow-y-auto">
-          {cart.length === 0 ? (
-            <p className="text-center text-muted-foreground py-10 text-sm">
-              Cart is empty
-            </p>
-          ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead className="text-xs">SKU</TableHead>
-                  <TableHead className="text-right text-xs">Price</TableHead>
-                  <TableHead className="text-center text-xs">Qty</TableHead>
-                  <TableHead className="text-right text-xs">Total</TableHead>
-                  <TableHead />
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {cart.map(l => (
-                  <CartRow
-                    key={l.product.id}
-                    line={l}
-                    onQty={changeQty}
-                    onRemove={removeFromCart}
-                  />
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </div>
-
-        {/* customer */}
-        <div>
-          <Label className="text-xs">Customer (optional)</Label>
-          <Select
-            value={clientId || '__walk_in__'}
-            onValueChange={v => setClientId(v === '__walk_in__' ? '' : v)}
-          >
-            <SelectTrigger>
-              <SelectValue placeholder="Walk-in customer" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__walk_in__">Walk-in</SelectItem>
-              {clients.map(c => (
-                <SelectItem key={c.id} value={String(c.id)}>
-                  {c.full_name} ({c.email})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* payment & note */}
-        <div className="flex gap-3">
-          <div className="flex-1">
-            <Label className="text-xs">Payment</Label>
-            <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="cash">Cash</SelectItem>
-                <SelectItem value="card">Card</SelectItem>
-                <SelectItem value="bank_transfer">Bank Transfer</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-        <div>
-          <Label className="text-xs">Note</Label>
-          <Textarea
-            rows={2}
-            value={customerNote}
-            onChange={e => setCustomerNote(e.target.value)}
-            placeholder="Optional note…"
+    <>
+      <div className="flex flex-col lg:flex-row h-[calc(100vh-var(--header-height))]">
+        {/* ── LEFT: Product Browser ──────────────────────────────────── */}
+        <div className="flex-1 flex flex-col p-3 lg:p-5 min-h-0 overflow-hidden">
+          <POSProductGrid
+            channels={channels}
+            channelId={channelId}
+            onChannelChange={handleChannelChange}
+            productSearch={productSearch}
+            onSearchChange={setProductSearch}
+            products={channelProducts}
+            cartQuantities={cartQuantities}
+            onAddToCart={addToCart}
+            isLoading={isProductsLoading}
+            isFetchingNextPage={isFetchingNextPage}
+            hasNextPage={hasNextPage}
+            fetchNextPage={fetchNextPage}
           />
         </div>
 
-        {/* total & submit */}
-        <div className="border-t pt-3">
-          <div className="flex justify-between text-lg font-bold mb-3">
-            <span>Total</span>
-            <span>TND {cartTotal.toFixed(2)}</span>
+        {/* ── RIGHT: Cart (desktop only) ─────────────────────────────── */}
+        {!isMobile && (
+          <div className="w-[380px] xl:w-[420px] border-l bg-card flex flex-col p-4 min-h-0">
+            <POSCart {...cartProps} />
           </div>
-          <Button
-            className="w-full"
-            size="lg"
-            disabled={cart.length === 0 || !channelId || submitting}
-            onClick={handleSubmit}
-          >
-            {submitting ? (
-              'Processing…'
-            ) : (
-              <>
-                <IconReceipt className="h-5 w-5 mr-2" /> Place Order
-              </>
-            )}
-          </Button>
-        </div>
+        )}
+
+        {/* ── Mobile: Sticky bottom bar ──────────────────────────────── */}
+        {isMobile && (
+          <div className="sticky bottom-0 z-30 bg-background border-t px-4 py-3 flex items-center gap-3 shadow-[0_-2px_10px_rgba(0,0,0,0.05)]">
+            <div className="flex-1 min-w-0">
+              <p className="text-xs text-muted-foreground">Total</p>
+              <p className="text-lg font-bold tabular-nums truncate">
+                {fmtTND(cartTotal)}{' '}
+                <span className="text-sm font-normal text-muted-foreground">
+                  TND
+                </span>
+              </p>
+            </div>
+            <Button
+              className="gap-2 h-11 px-5"
+              onClick={() => setCartDrawerOpen(true)}
+            >
+              <ShoppingCart className="size-4" />
+              Cart
+              {cartItemCount > 0 && (
+                <Badge
+                  variant="secondary"
+                  className="ml-1 bg-white/20 text-white text-xs px-1.5 py-0"
+                >
+                  {cartItemCount}
+                </Badge>
+              )}
+            </Button>
+          </div>
+        )}
       </div>
 
-      {/* ── success dialog ─────────────────────────────────────────────── */}
-      <Dialog open={!!successOrder} onOpenChange={() => setSuccessOrder(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-green-600">
-              <CheckCircle className="h-5 w-5" /> Order Placed
-            </DialogTitle>
-            <DialogDescription>
-              Order <strong>{successOrder}</strong> has been created
-              successfully.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button onClick={() => setSuccessOrder(null)}>OK</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* ── Mobile: Cart Drawer ───────────────────────────────────────── */}
+      {isMobile && (
+        <Drawer
+          open={cartDrawerOpen}
+          onOpenChange={setCartDrawerOpen}
+          direction="bottom"
+        >
+          <DrawerContent className="max-h-[85vh]">
+            <DrawerHeader>
+              <DrawerTitle>Shopping Cart</DrawerTitle>
+            </DrawerHeader>
+            <div className="flex-1 overflow-y-auto px-4 pb-4 min-h-0">
+              <POSCart {...cartProps} />
+            </div>
+          </DrawerContent>
+        </Drawer>
+      )}
 
-      {/* ── error dialog ───────────────────────────────────────────────── */}
+      {/* ── Post-order dialog ────────────────────────────────────────── */}
+      <POSPostOrderDialog
+        order={completedOrder}
+        onClose={handleClosePostOrder}
+        onPrintReceipt={() => handlePrint('receipt')}
+        onPrintInvoice={() => handlePrint('invoice')}
+      />
+
+      {/* ── Error dialog ─────────────────────────────────────────────── */}
       <Dialog open={!!errorMsg} onOpenChange={() => setErrorMsg(null)}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle className="text-red-600">Error</DialogTitle>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="size-5" />
+              Error
+            </DialogTitle>
             <DialogDescription>{errorMsg}</DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -528,6 +463,14 @@ export default function POSPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+
+      {/* ── Hidden print targets ─────────────────────────────────────── */}
+      {printMode === 'receipt' && printData && (
+        <POSReceiptPrint data={printData} />
+      )}
+      {printMode === 'invoice' && printData && (
+        <POSInvoicePrint data={printData} />
+      )}
+    </>
   );
 }

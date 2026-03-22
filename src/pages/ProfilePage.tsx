@@ -61,6 +61,7 @@ import { EDUCATION_LEVELS } from '@/types';
 import { useAuthStore } from '@/store/authStore';
 import { toast } from 'sonner';
 import { ChangePasswordModal } from '@/components/ChangePasswordModal';
+import { getMediaUrl } from '@/utils/helpers';
 
 const profileSchema = z.object({
   phone: z.string().optional(),
@@ -355,7 +356,7 @@ export default function ProfilePage() {
             <div className="relative group">
               <Avatar className="size-24 sm:size-32 ring-4 ring-background shadow-xl">
                 <AvatarImage
-                  src={profile.avatar || undefined}
+                  src={getMediaUrl(profile.avatar) || undefined}
                   className="object-cover"
                 />
                 <AvatarFallback className="text-2xl sm:text-3xl font-semibold bg-primary/10 text-primary">

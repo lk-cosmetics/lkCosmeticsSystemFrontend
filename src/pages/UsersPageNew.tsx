@@ -68,9 +68,10 @@ import { ChangePasswordModal } from '@/components/ChangePasswordModal';
 import { userService, type UserFilters } from '@/services/user.service';
 import { roleService } from '@/services/role.service';
 import { companyService } from '@/services/company.service';
-import type { UserListItem, Role, Company, PaginatedResponse } from '@/types';
+import type { UserListItem, Role, CompanyListItem, PaginatedResponse } from '@/types';
 import { useDebounce } from '@/hooks';
 import { toast } from 'sonner';
+import { getMediaUrl } from '@/utils/helpers';
 
 export default function UsersPage() {
   const navigate = useNavigate();
@@ -78,7 +79,7 @@ export default function UsersPage() {
   // Data states
   const [users, setUsers] = useState<UserListItem[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
+  const [companies, setCompanies] = useState<CompanyListItem[]>([]);
   const [pagination, setPagination] = useState({
     count: 0,
     page: 1,
@@ -383,7 +384,7 @@ export default function UsersPage() {
                     <div className="flex items-center gap-3">
                       <Avatar className="size-10">
                         <AvatarImage
-                          src={user.avatar || undefined}
+                          src={getMediaUrl(user.avatar) || undefined}
                           alt={user.full_name}
                         />
                         <AvatarFallback>
@@ -555,7 +556,7 @@ export default function UsersPage() {
               <div className="flex items-center gap-4 pb-4 border-b">
                 <Avatar className="size-20">
                   <AvatarImage
-                    src={selectedUser.avatar || undefined}
+                    src={getMediaUrl(selectedUser.avatar) || undefined}
                     alt={selectedUser.full_name}
                   />
                   <AvatarFallback className="text-lg">

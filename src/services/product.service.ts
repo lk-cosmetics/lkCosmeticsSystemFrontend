@@ -22,6 +22,8 @@ interface ProductQueryParams {
   ordering?: string;
   page?: number;
   page_size?: number;
+  offset?: number;
+  limit?: number;
 }
 
 interface SyncResponse {
@@ -102,6 +104,47 @@ const buildProductFormData = (
   return formData;
 };
 
+const normalizeProductQueryParams = (params?: ProductQueryParams): ProductQueryParams | undefined => {
+  if (!params) return undefined;
+
+  const normalized: ProductQueryParams = { ...params };
+
+  // Support both pagination conventions: page/page_size and offset/limit.
+  if (normalized.limit !== undefined && normalized.page_size === undefined) {
+    normalized.page_size = normalized.limit;
+  }
+
+  if (normalized.page_size !== undefined && normalized.limit === undefined) {
+    normalized.limit = normalized.page_size;
+  }
+
+  return normalized;
+};
+
+const normalizePaginatedResponse = <T>(
+  data: PaginatedResponse<T> | T[]
+): PaginatedResponse<T> => {
+  if (Array.isArray(data)) {
+    return {
+      count: data.length,
+      next: null,
+      previous: null,
+      results: data,
+    };
+  }
+
+  if (data && Array.isArray(data.results)) {
+    return data;
+  }
+
+  return {
+    count: 0,
+    next: null,
+    previous: null,
+    results: [],
+  };
+};
+
 class ProductService {
   /**
    * Get all products (handles paginated response)
@@ -109,16 +152,11 @@ class ProductService {
   async getAllProducts(
     params?: ProductQueryParams
   ): Promise<ProductListItem[]> {
-    const response = await apiClient.get<PaginatedResponse<ProductListItem>>(
+    const response = await apiClient.get<PaginatedResponse<ProductListItem> | ProductListItem[]>(
       PRODUCT_ENDPOINT,
-      { params }
+      { params: normalizeProductQueryParams(params) }
     );
-    // Handle paginated response - extract results array
-    if (response.data && 'results' in response.data) {
-      return response.data.results;
-    }
-    // Fallback for non-paginated response
-    return response.data as unknown as ProductListItem[];
+    return normalizePaginatedResponse(response.data).results;
   }
 
   /**
@@ -127,11 +165,11 @@ class ProductService {
   async getProductsPaginated(
     params?: ProductQueryParams
   ): Promise<PaginatedResponse<ProductListItem>> {
-    const response = await apiClient.get<PaginatedResponse<ProductListItem>>(
+    const response = await apiClient.get<PaginatedResponse<ProductListItem> | ProductListItem[]>(
       PRODUCT_ENDPOINT,
-      { params }
+      { params: normalizeProductQueryParams(params) }
     );
-    return response.data;
+    return normalizePaginatedResponse(response.data);
   }
 
   /**

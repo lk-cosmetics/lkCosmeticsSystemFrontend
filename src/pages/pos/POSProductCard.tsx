@@ -1,0 +1,114 @@
+import { useState, memo } from 'react';
+import { Package } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { getMediaUrl } from '@/utils/helpers';
+import type { ProductListItem } from '@/types';
+import { getEffectivePrice, fmtTND } from './types';
+
+interface POSProductCardProps {
+  product: ProductListItem;
+  cartQuantity: number;
+  onAdd: () => void;
+}
+
+export const POSProductCard = memo(function POSProductCard({
+  product,
+  cartQuantity,
+  onAdd,
+}: POSProductCardProps) {
+  const [imgError, setImgError] = useState(false);
+
+  const resolvedImg = getMediaUrl(product.image_url);
+  const showImage = !!resolvedImg && !imgError;
+  const outOfStock = product.inventory_status === 'outofstock';
+
+  const price = getEffectivePrice(product);
+  const hasPromo =
+    product.promotion_price &&
+    Number(product.promotion_price) > 0 &&
+    product.promotion_price !== product.sales_price;
+
+  return (
+    <Card
+      role="button"
+      tabIndex={0}
+      aria-label={`Add ${product.name} — ${fmtTND(price)} TND`}
+      aria-disabled={outOfStock}
+      className={`cursor-pointer group overflow-hidden transition-all duration-150
+        hover:border-primary hover:shadow-md active:scale-[0.97] select-none
+        ${outOfStock ? 'opacity-50 pointer-events-none' : ''}`}
+      onClick={onAdd}
+      onKeyDown={e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onAdd();
+        }
+      }}
+    >
+      {/* Image */}
+      <div className="relative h-28 bg-muted flex items-center justify-center overflow-hidden">
+        {showImage ? (
+          <img
+            src={resolvedImg}
+            alt={product.name}
+            className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-200"
+            loading="lazy"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          <Package className="size-8 text-muted-foreground/40" />
+        )}
+
+        {/* Cart quantity badge */}
+        {cartQuantity > 0 && (
+          <Badge className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0 min-w-[20px] justify-center">
+            {cartQuantity}
+          </Badge>
+        )}
+
+        {/* Out of stock */}
+        {outOfStock && (
+          <Badge
+            variant="destructive"
+            className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0"
+          >
+            Out
+          </Badge>
+        )}
+
+        {/* Promo badge */}
+        {hasPromo && !outOfStock && (
+          <Badge className="absolute top-1.5 left-1.5 text-[10px] px-1.5 py-0 bg-green-600">
+            Promo
+          </Badge>
+        )}
+      </div>
+
+      {/* Info */}
+      <CardContent className="p-2.5 !pt-2">
+        <p className="text-sm font-medium truncate leading-tight">
+          {product.name}
+        </p>
+        <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+          {product.barcode || '—'}
+        </p>
+        <div className="mt-1.5 flex items-baseline gap-1.5">
+          {hasPromo ? (
+            <>
+              <span className="text-sm font-bold text-green-600">
+                {fmtTND(Number(product.promotion_price))}
+              </span>
+              <span className="text-xs text-muted-foreground line-through">
+                {fmtTND(Number(product.sales_price))}
+              </span>
+            </>
+          ) : (
+            <span className="text-sm font-bold">{fmtTND(price)}</span>
+          )}
+          <span className="text-[10px] text-muted-foreground">TND</span>
+        </div>
+      </CardContent>
+    </Card>
+  );
+});

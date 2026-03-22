@@ -1,9 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import {
-  storeInventoryService,
-  inventoryMovementService,
+import { 
+  storeInventoryService, 
+  inventoryMovementService 
 } from '@/services/inventory.service';
-import type {
+import type { 
   CreateSalesChannelInventoryRequest,
   UpdateSalesChannelInventoryRequest,
   AdjustSalesChannelInventoryRequest,
@@ -18,27 +18,21 @@ import type {
 export const storeInventoryKeys = {
   all: ['store-inventory'] as const,
   lists: () => [...storeInventoryKeys.all, 'list'] as const,
-  list: (filters?: Record<string, unknown>) =>
-    [...storeInventoryKeys.lists(), filters] as const,
+  list: (filters?: Record<string, unknown>) => [...storeInventoryKeys.lists(), filters] as const,
   details: () => [...storeInventoryKeys.all, 'detail'] as const,
   detail: (id: number) => [...storeInventoryKeys.details(), id] as const,
-  lowStock: (companyId?: number) =>
-    [...storeInventoryKeys.all, 'low-stock', companyId] as const,
-  outOfStock: (companyId?: number) =>
-    [...storeInventoryKeys.all, 'out-of-stock', companyId] as const,
-  byProduct: (productId: number) =>
-    [...storeInventoryKeys.all, 'by-product', productId] as const,
+  lowStock: () => [...storeInventoryKeys.all, 'low-stock'] as const,
+  outOfStock: () => [...storeInventoryKeys.all, 'out-of-stock'] as const,
+  byProduct: (productId: number) => [...storeInventoryKeys.all, 'by-product', productId] as const,
 };
 
 export const movementKeys = {
   all: ['movements'] as const,
   lists: () => [...movementKeys.all, 'list'] as const,
-  list: (filters?: Record<string, unknown>) =>
-    [...movementKeys.lists(), filters] as const,
+  list: (filters?: Record<string, unknown>) => [...movementKeys.lists(), filters] as const,
   details: () => [...movementKeys.all, 'detail'] as const,
   detail: (id: number) => [...movementKeys.details(), id] as const,
-  summary: (filters?: Record<string, unknown>) =>
-    [...movementKeys.all, 'summary', filters] as const,
+  summary: (filters?: Record<string, unknown>) => [...movementKeys.all, 'summary', filters] as const,
 };
 
 // =============================================================================
@@ -68,7 +62,7 @@ export function useStoreInventoryDetail(id: number) {
 
 export function useLowStockItems(companyId?: number) {
   return useQuery({
-    queryKey: storeInventoryKeys.lowStock(companyId),
+    queryKey: storeInventoryKeys.lowStock(),
     queryFn: () => storeInventoryService.getLowStockItems(companyId),
     staleTime: 2 * 60 * 1000,
   });
@@ -76,7 +70,7 @@ export function useLowStockItems(companyId?: number) {
 
 export function useOutOfStockItems(companyId?: number) {
   return useQuery({
-    queryKey: storeInventoryKeys.outOfStock(companyId),
+    queryKey: storeInventoryKeys.outOfStock(),
     queryFn: () => storeInventoryService.getOutOfStockItems(companyId),
     staleTime: 2 * 60 * 1000,
   });
@@ -97,12 +91,10 @@ export function useProductInventorySummary(productId: number) {
 export function useCreateStoreInventory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: CreateSalesChannelInventoryRequest) =>
+    mutationFn: (data: CreateSalesChannelInventoryRequest) => 
       storeInventoryService.createStoreInventory(data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: storeInventoryKeys.lists(),
-      });
+      queryClient.invalidateQueries({ queryKey: storeInventoryKeys.lists() });
     },
   });
 }
@@ -110,20 +102,11 @@ export function useCreateStoreInventory() {
 export function useUpdateStoreInventory() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      id,
-      data,
-    }: {
-      id: number;
-      data: UpdateSalesChannelInventoryRequest;
-    }) => storeInventoryService.updateStoreInventory(id, data),
+    mutationFn: ({ id, data }: { id: number; data: UpdateSalesChannelInventoryRequest }) =>
+      storeInventoryService.updateStoreInventory(id, data),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: storeInventoryKeys.detail(variables.id),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: storeInventoryKeys.lists(),
-      });
+      queryClient.invalidateQueries({ queryKey: storeInventoryKeys.detail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: storeInventoryKeys.lists() });
     },
   });
 }
@@ -133,9 +116,7 @@ export function useDeleteStoreInventory() {
   return useMutation({
     mutationFn: (id: number) => storeInventoryService.deleteStoreInventory(id),
     onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: storeInventoryKeys.lists(),
-      });
+      queryClient.invalidateQueries({ queryKey: storeInventoryKeys.lists() });
     },
   });
 }
@@ -143,18 +124,13 @@ export function useDeleteStoreInventory() {
 export function useAdjustStock() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      id,
-      data,
-    }: {
-      id: number;
-      data: AdjustSalesChannelInventoryRequest;
-    }) => storeInventoryService.adjustStock(id, data),
+    mutationFn: ({ id, data }: { id: number; data: AdjustSalesChannelInventoryRequest }) =>
+      storeInventoryService.adjustStock(id, data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: storeInventoryKeys.all });
-      void queryClient.invalidateQueries({ queryKey: movementKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: storeInventoryKeys.all });
+      queryClient.invalidateQueries({ queryKey: movementKeys.lists() });
       // Also refresh product data since stock_quantity updates
-      void queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
     },
   });
 }
@@ -210,9 +186,9 @@ export function useCreateInventoryMovement() {
     mutationFn: (data: CreateInventoryMovementRequest) =>
       inventoryMovementService.createMovement(data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: movementKeys.lists() });
-      void queryClient.invalidateQueries({ queryKey: storeInventoryKeys.all });
-      void queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: movementKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: storeInventoryKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
     },
   });
 }
@@ -223,12 +199,10 @@ export function useCompleteMovement() {
     mutationFn: ({ id, notes }: { id: number; notes?: string }) =>
       inventoryMovementService.completeMovement(id, notes),
     onSuccess: (_data, variables) => {
-      void queryClient.invalidateQueries({
-        queryKey: movementKeys.detail(variables.id),
-      });
-      void queryClient.invalidateQueries({ queryKey: movementKeys.lists() });
-      void queryClient.invalidateQueries({ queryKey: storeInventoryKeys.all });
-      void queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: movementKeys.detail(variables.id) });
+      queryClient.invalidateQueries({ queryKey: movementKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: storeInventoryKeys.all });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
     },
   });
 }
@@ -239,8 +213,8 @@ export function useCreateTransfer() {
     mutationFn: (data: CreateTransferRequest) =>
       inventoryMovementService.createTransfer(data),
     onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: movementKeys.lists() });
-      void queryClient.invalidateQueries({ queryKey: storeInventoryKeys.all });
+      queryClient.invalidateQueries({ queryKey: movementKeys.lists() });
+      queryClient.invalidateQueries({ queryKey: storeInventoryKeys.all });
     },
   });
 }

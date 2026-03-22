@@ -48,7 +48,7 @@ import { profileService } from '@/services/profile.service';
 import { roleService } from '@/services/role.service';
 import { companyService } from '@/services/company.service';
 import { brandService } from '@/services/brand.service';
-import type { UserDetails, Role, Company, Brand } from '@/types';
+import type { UserDetails, Role, CompanyListItem, Brand } from '@/types';
 import { toast } from 'sonner';
 
 // Tunisia cities constant
@@ -106,7 +106,7 @@ export default function EditUserPage() {
 
   const [user, setUser] = useState<UserDetails | null>(null);
   const [roles, setRoles] = useState<Role[]>([]);
-  const [companies, setCompanies] = useState<Company[]>([]);
+  const [companies, setCompanies] = useState<CompanyListItem[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [filteredBrands, setFilteredBrands] = useState<Brand[]>([]);
   const [selectedBrands, setSelectedBrands] = useState<number[]>([]);

@@ -5,25 +5,56 @@
 import { API_CONFIG } from './constants';
 
 /**
- * Gets the full URL for a media file from the backend
- * If the URL is already absolute (starts with http), returns it as-is
- * If the URL is relative, prepends the API base URL
+ * Gets the full URL for a media/image file from the backend.
+ *
+ * Handles:
+ * - null / undefined / empty → returns undefined (no image)
+ * - data: URIs → returned as-is (local previews)
+ * - Absolute external URLs (https://cdn.example.com/…) → returned as-is
+ * - Absolute URLs pointing at the current origin → returned as-is
+ * - Absolute URLs with stale/internal hosts (e.g. http://backend:8000/media/…)
+ *   → stripped to a relative path so the current origin serves them
+ * - Relative paths (/media/…) → prepended with API base URL
  */
 export function getMediaUrl(
   url: string | null | undefined
 ): string | undefined {
   if (!url) return undefined;
 
-  // If already an absolute URL, return as-is
-  if (
-    url.startsWith('http://') ||
-    url.startsWith('https://') ||
-    url.startsWith('data:')
-  ) {
-    return url;
+  // data: URIs (local file previews) — pass through
+  if (url.startsWith('data:')) return url;
+
+  // Strip stale absolute URLs that contain a /media/ path back to the
+  // relative path.  This handles URLs stored in the DB with a host that no
+  // longer matches (e.g. http://backend:8000/media/products/abc.jpg or
+  // http://localhost:8000/media/products/abc.jpg when the app now runs on
+  // a different port).
+  if (url.startsWith('http://') || url.startsWith('https://')) {
+    const mediaIdx = url.indexOf('/media/');
+    if (mediaIdx !== -1) {
+      // Turn it into a relative path that the current origin can serve
+      url = url.substring(mediaIdx); // e.g. /media/products/abc.jpg
+    } else {
+      // External URL (WooCommerce / WordPress images) — proxy through
+      // our own Nginx to avoid CORS, hotlink-blocking, and mixed-content
+      // issues.  The proxy rewrites:
+      //   https://therapybylk.com/wp-content/uploads/2024/11/img.png
+      //   → /wp-proxy/wp-content/uploads/2024/11/img.png
+      try {
+        const parsed = new URL(url);
+        // Only proxy known WordPress/WooCommerce image paths
+        if (parsed.pathname.includes('/wp-content/uploads/')) {
+          return `/wp-proxy${parsed.pathname}`;
+        }
+      } catch {
+        // Malformed URL — fall through to relative handling
+      }
+      // Other external URLs — return as-is
+      return url;
+    }
   }
 
-  // If relative URL, prepend API base URL
+  // Relative URL — prepend API base URL
   const baseUrl = API_CONFIG.BASE_URL.endsWith('/')
     ? API_CONFIG.BASE_URL.slice(0, -1)
     : API_CONFIG.BASE_URL;

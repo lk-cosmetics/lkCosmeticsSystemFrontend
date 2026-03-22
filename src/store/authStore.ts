@@ -98,12 +98,13 @@ let authInitializing: Promise<void> | null = null;
 export async function waitForAuthInit(): Promise<void> {
   if (authInitialized) return;
   if (authInitializing) return authInitializing;
-  
-  authInitializing = authService.initializeAuth()
+
+  authInitializing = authService
+    .initializeAuth()
     .then(() => {
       const user = authService.getStoredUser();
       const isAuth = authService.isAuthenticated();
-      
+
       if (user && isAuth) {
         useAuthStore.setState({
           user,
@@ -112,11 +113,11 @@ export async function waitForAuthInit(): Promise<void> {
       }
       authInitialized = true;
     })
-    .catch((error) => {
+    .catch(error => {
       console.error('Failed to initialize auth state:', error);
       authInitialized = true; // Mark as done even on error to prevent infinite waiting
     });
-    
+
   return authInitializing;
 }
 

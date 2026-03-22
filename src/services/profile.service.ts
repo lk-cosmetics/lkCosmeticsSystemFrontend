@@ -91,11 +91,7 @@ class ProfileService {
     const response = await apiClient.patch<UserProfileFull>(
       `${AUTH_CONFIG.PROFILE_ENDPOINT}${id}/`,
       formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
+      // Content-Type boundary is auto-set by axios interceptor for FormData
     );
     return response.data;
   }
@@ -110,11 +106,7 @@ class ProfileService {
     const response = await apiClient.patch<UserProfileFull>(
       `${AUTH_CONFIG.PROFILE_ENDPOINT}${id}/`,
       formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
+      // Content-Type boundary is auto-set by axios interceptor for FormData
     );
     return response.data;
   }
@@ -136,11 +128,7 @@ class ProfileService {
     const response = await apiClient.patch<UserProfileFull>(
       `${AUTH_CONFIG.PROFILE_ENDPOINT}${id}/`,
       formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
+      // Content-Type boundary is auto-set by axios interceptor for FormData
     );
     return response.data;
   }
@@ -160,11 +148,7 @@ class ProfileService {
     const response = await apiClient.patch<UserProfileFull>(
       `${AUTH_CONFIG.PROFILE_ENDPOINT}${id}/`,
       formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
+      // Content-Type boundary is auto-set by axios interceptor for FormData
     );
     return response.data;
   }
@@ -186,11 +170,7 @@ class ProfileService {
     const response = await apiClient.patch<UserProfileFull>(
       `${AUTH_CONFIG.PROFILE_ENDPOINT}${id}/`,
       formData,
-      {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
-      }
+      // Content-Type boundary is auto-set by axios interceptor for FormData
     );
     return response.data;
   }

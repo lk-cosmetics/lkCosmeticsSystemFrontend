@@ -34,7 +34,7 @@ export function LoginForm({
     try {
       await login({ matricule, password });
       // Redirect to dashboard on successful login
-      void navigate('/dashboard');
+      navigate('/dashboard');
     } catch (err) {
       // Error is already set in the store
       console.error('Login failed:', err);
