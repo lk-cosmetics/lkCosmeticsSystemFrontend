@@ -52,7 +52,7 @@ export function AppRouter() {
             <Route
               path="roles"
               element={
-                <RoleGuard requiredPermission="manage_roles">
+                <RoleGuard requiredPermission="view_roles">
                   <RolesPage />
                 </RoleGuard>
               }

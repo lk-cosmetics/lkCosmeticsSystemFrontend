@@ -68,7 +68,7 @@ const navMain = [
     title: 'Roles',
     url: '/dashboard/roles',
     icon: IconShield,
-    requiredPermissions: ['manage_roles'],
+    requiredPermissions: ['view_roles'],
   },
   {
     title: 'My Profile',

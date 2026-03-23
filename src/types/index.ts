@@ -100,7 +100,7 @@ export interface User {
   can_switch_brands?: boolean;
   company_id?: number;
   allowed_brand_ids?: number[];
-  /** RBAC permission codenames (e.g. 'manage_products', 'use_pos'). */
+  /** RBAC permission codenames (e.g. 'view_products', 'create_orders', 'use_pos'). */
   permissions: string[];
   // Computed properties for backwards compatibility
   firstName?: string;
