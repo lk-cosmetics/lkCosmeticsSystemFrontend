@@ -82,6 +82,11 @@ class AuthService {
           email: user.email,
           full_name: user.full_name,
           role: user.role,
+          roles: user.roles ?? (user.role ? [user.role] : []),
+          permissions: user.permissions ?? [],
+          can_switch_brands: user.can_switch_brands,
+          company_id: user.company_id,
+          allowed_brand_ids: user.allowed_brand_ids,
         };
         localStorage.setItem(
           AUTH_CONFIG.STORAGE_KEY.USER_DISPLAY,

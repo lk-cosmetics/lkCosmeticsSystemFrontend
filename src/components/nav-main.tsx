@@ -11,7 +11,7 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 import { useAuthStore } from '@/store/authStore';
-import { hasRole } from '@/hooks/useAuth';
+import { hasRole, hasAnyPermission } from '@/hooks/useAuth';
 
 export function NavMain({
   items,
@@ -20,7 +20,10 @@ export function NavMain({
     title: string;
     url: string;
     icon?: Icon;
+    /** Legacy role check (backward compat). */
     requiredRole?: string;
+    /** RBAC: show item if user has ANY of these permissions. */
+    requiredPermissions?: string[];
   }[];
 }) {
   const location = useLocation();
@@ -35,12 +38,19 @@ export function NavMain({
 
   const isRoutable = (url: string) => url.trim() !== '' && url !== '#';
 
-  // Filter items based on user role
+  // Filter items based on RBAC permissions or legacy role
   const visibleItems = items.filter(item => {
-    if (!item.requiredRole) return true;
-    // Check if user and user.roles exist before checking role
-    if (!user || !user.roles) return false;
-    return hasRole(user, item.requiredRole);
+    if (!user) return false;
+    // RBAC permission check (preferred)
+    if (item.requiredPermissions?.length) {
+      return hasAnyPermission(user, item.requiredPermissions);
+    }
+    // Legacy role check
+    if (item.requiredRole) {
+      return hasRole(user, item.requiredRole);
+    }
+    // No guard → visible to all authenticated users
+    return true;
   });
 
   return (

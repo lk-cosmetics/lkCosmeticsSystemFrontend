@@ -68,7 +68,7 @@ const navMain = [
     title: 'Roles',
     url: '/dashboard/roles',
     icon: IconShield,
-    requiredRole: 'SuperAdmin',
+    requiredPermissions: ['manage_roles'],
   },
   {
     title: 'My Profile',
