@@ -1,8 +1,17 @@
 /**
  * POSPage – Modern POS cashier UI.
- * Responsive layout: desktop side-by-side, mobile bottom drawer.
- * Features: product browser, cart, calculator, receipt/invoice printing,
- *           barcode scanner support.
+ *
+ * Product adding: 3 methods
+ *   1. Hardware barcode scanner (keyboard interception)
+ *   2. Camera barcode scanning (BarcodeDetector API)
+ *   3. Manual product grid click
+ *
+ * Customer handling:
+ *   - No default customer (starts null)
+ *   - User can: select existing, add new, or skip
+ *   - Order validation: if neither selected nor skipped → prompt dialog
+ *
+ * Layout: desktop side-by-side, mobile bottom drawer.
  */
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Loader2, ShoppingCart, AlertTriangle } from 'lucide-react';
@@ -30,6 +39,7 @@ import { useInfiniteProducts } from '@/hooks/queries/useProducts';
 import { salesChannelService } from '@/services/salesChannel.service';
 import { clientService } from '@/services/client.service';
 import { orderService } from '@/services/order.service';
+import { productService } from '@/services/product.service';
 import type {
   ProductListItem,
   SalesChannel,
@@ -43,6 +53,9 @@ import { POSCart } from './pos/POSCart';
 import { POSPostOrderDialog } from './pos/POSPostOrderDialog';
 import { POSReceiptPrint } from './pos/POSReceiptPrint';
 import { POSInvoicePrint } from './pos/POSInvoicePrint';
+import { POSCameraScanner } from './pos/POSCameraScanner';
+import { POSAddClientDialog } from './pos/POSAddClientDialog';
+import { POSClientPromptDialog } from './pos/POSClientPromptDialog';
 import {
   getEffectivePrice,
   fmtTND,
@@ -64,11 +77,14 @@ export default function POSPage() {
 
   /* ── Selections ────────────────────────────────────────────────────── */
   const [channelId, setChannelId] = useState('');
-  const [clientId, setClientId] = useState('');
   const [productSearch, setProductSearch] = useState('');
   const debouncedProductSearch = useDebounce(productSearch, 500);
   const [paymentMethod, setPaymentMethod] = useState('cash');
   const [customerNote, setCustomerNote] = useState('');
+
+  /* ── Customer state (no default — starts null) ─────────────────────── */
+  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [clientSkipped, setClientSkipped] = useState(false);
 
   /* ── Cart ───────────────────────────────────────────────────────────── */
   const [cart, setCart] = useState<CartLine[]>([]);
@@ -86,7 +102,16 @@ export default function POSPage() {
   /* ── Mobile drawer ─────────────────────────────────────────────────── */
   const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
 
-  /* ── Barcode scanner buffer ────────────────────────────────────────── */
+  /* ── Dialog states ─────────────────────────────────────────────────── */
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [addClientOpen, setAddClientOpen] = useState(false);
+  const [clientPromptOpen, setClientPromptOpen] = useState(false);
+
+  /* ── Camera scanner feedback ───────────────────────────────────────── */
+  const [scanFeedback, setScanFeedback] = useState<string | null>(null);
+  const [scanFeedbackType, setScanFeedbackType] = useState<'success' | 'error' | null>(null);
+
+  /* ── Barcode scanner buffer (hardware scanner) ─────────────────────── */
   const barcodeBuffer = useRef('');
   const barcodeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -112,6 +137,15 @@ export default function POSPage() {
   }, [fetchRef]);
 
   /* ── Channel-filtered products ─────────────────────────────────────── */
+  const selectedChannel = channels.find(c => c.id === Number(channelId));
+  const productQueryParams = useMemo(() => {
+    if (!channelId || !selectedChannel) return { enabled: false as const };
+    if (selectedChannel.channel_type === 'POS') {
+      return { brand: selectedChannel.brand, enabled: true as const };
+    }
+    return { sales_channel: Number(channelId), enabled: true as const };
+  }, [channelId, selectedChannel]);
+
   const {
     data: productsData,
     fetchNextPage,
@@ -119,10 +153,9 @@ export default function POSPage() {
     isFetchingNextPage,
     isLoading: isProductsLoading,
   } = useInfiniteProducts({
-    sales_channel: channelId ? Number(channelId) : undefined,
+    ...productQueryParams,
     search: debouncedProductSearch || undefined,
     page_size: 20,
-    enabled: !!channelId, // Only fetch when a channel is selected
   });
 
   const channelProducts = useMemo(() => {
@@ -186,7 +219,84 @@ export default function POSPage() {
     [amountReceived, cartTotal],
   );
 
-  /* ── Barcode scanner (keyboard input detection) ────────────────────── */
+  /* ── Customer handlers ─────────────────────────────────────────────── */
+  const handleSelectClient = useCallback((client: Client) => {
+    setSelectedClient(client);
+    setClientSkipped(false);
+  }, []);
+
+  const handleSkipClient = useCallback(() => {
+    setSelectedClient(null);
+    setClientSkipped(true);
+  }, []);
+
+  const handleClearClient = useCallback(() => {
+    setSelectedClient(null);
+    setClientSkipped(false);
+  }, []);
+
+  const handleClientCreated = useCallback((client: Client) => {
+    setClients(prev => [client, ...prev]);
+    setSelectedClient(client);
+    setClientSkipped(false);
+  }, []);
+
+  /* ── Barcode handler (shared by hardware scanner + camera) ─────────── */
+  const handleBarcodeDetected = useCallback(
+    async (barcode: string) => {
+      // 1. Try local match first (faster, no network)
+      const localMatch = channelProducts.find(
+        p => p.barcode?.toLowerCase() === barcode.toLowerCase(),
+      );
+      if (localMatch) {
+        addToCart(localMatch);
+        setScanFeedback(`✓ ${localMatch.name} added`);
+        setScanFeedbackType('success');
+        return;
+      }
+
+      // 2. Try API barcode search
+      const apiResult = await productService.searchByBarcode(barcode);
+      if (apiResult) {
+        // Convert full Product to ProductListItem shape for cart
+        const listItem: ProductListItem = {
+          id: apiResult.id,
+          wc_product_id: apiResult.wc_product_id,
+          sales_channel: apiResult.sales_channel,
+          sales_channel_name: apiResult.sales_channel_name,
+          brand: apiResult.brand,
+          brand_name: apiResult.brand_name,
+          name: apiResult.name,
+          slug: apiResult.slug,
+          barcode: apiResult.barcode,
+          product_type: apiResult.product_type,
+          status: apiResult.status,
+          inventory_status: apiResult.inventory_status,
+          purchase_price: apiResult.purchase_price,
+          sales_price: apiResult.sales_price,
+          promotion_price: apiResult.promotion_price,
+          stock_quantity: apiResult.stock_quantity,
+          manage_stock: apiResult.manage_stock,
+          image_url: apiResult.image_url,
+          categories: apiResult.categories,
+          category_names: apiResult.category_names,
+          created_at: apiResult.created_at,
+          updated_at: apiResult.updated_at,
+        };
+        addToCart(listItem);
+        setScanFeedback(`✓ ${apiResult.name} added`);
+        setScanFeedbackType('success');
+        return;
+      }
+
+      // 3. Not found
+      setScanFeedback(`✗ Barcode "${barcode}" not found`);
+      setScanFeedbackType('error');
+    },
+    [channelProducts, addToCart],
+  );
+
+  /* ── Hardware barcode scanner (keyboard input detection) ────────────── */
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
@@ -195,17 +305,12 @@ export default function POSPage() {
         target instanceof HTMLTextAreaElement ||
         target.isContentEditable;
 
-      // Only intercept when no input is focused
       if (isInput) return;
 
       if (e.key === 'Enter' && barcodeBuffer.current.length >= 3) {
         const barcode = barcodeBuffer.current;
         barcodeBuffer.current = '';
-
-        const product = channelProducts.find(
-          p => p.barcode?.toLowerCase() === barcode.toLowerCase(),
-        );
-        if (product) addToCart(product);
+        handleBarcodeDetected(barcode);
       } else if (e.key.length === 1) {
         barcodeBuffer.current += e.key;
         clearTimeout(barcodeTimer.current);
@@ -220,17 +325,23 @@ export default function POSPage() {
       window.removeEventListener('keydown', handleKeyDown);
       clearTimeout(barcodeTimer.current);
     };
-  }, [channelProducts, addToCart]);
+  }, [handleBarcodeDetected]);
+
+  // Clear scan feedback after 3 seconds
+  useEffect(() => {
+    if (!scanFeedback) return;
+    const t = setTimeout(() => {
+      setScanFeedback(null);
+      setScanFeedbackType(null);
+    }, 3000);
+    return () => clearTimeout(t);
+  }, [scanFeedback]);
 
   /* ── Submit order ──────────────────────────────────────────────────── */
-  const handleSubmit = useCallback(async () => {
+  const executeSubmit = useCallback(async () => {
     if (!channelId || cart.length === 0) return;
     setSubmitting(true);
     setErrorMsg(null);
-
-    const selectedClient = clientId
-      ? clients.find(c => c.id === Number(clientId))
-      : undefined;
 
     const currentChannel = channels.find(c => c.id === Number(channelId));
 
@@ -268,11 +379,11 @@ export default function POSPage() {
     try {
       const result = await orderService.createPOS(payload);
 
-      // Snapshot print data BEFORE clearing state (fixes stale clientId bug)
+      // Snapshot print data BEFORE clearing state
       setPrintData({
         order: result,
         channel: currentChannel,
-        client: selectedClient,
+        client: selectedClient ?? undefined,
         paymentMethod,
         amountReceived,
         changeAmount,
@@ -283,7 +394,8 @@ export default function POSPage() {
       // Reset form state
       setCart([]);
       setCustomerNote('');
-      setClientId('');
+      setSelectedClient(null);
+      setClientSkipped(false);
       if (isMobile) setCartDrawerOpen(false);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
@@ -292,10 +404,26 @@ export default function POSPage() {
       setSubmitting(false);
     }
   }, [
-    channelId, cart, clientId, clients, channels,
+    channelId, cart, selectedClient, channels,
     paymentMethod, customerNote, cartTotal, amountReceived, changeAmount,
     isMobile,
   ]);
+
+  const handleSubmit = useCallback(() => {
+    // If customer not selected AND not skipped → show prompt
+    if (!selectedClient && !clientSkipped) {
+      setClientPromptOpen(true);
+      return;
+    }
+    executeSubmit();
+  }, [selectedClient, clientSkipped, executeSubmit]);
+
+  // Called from the prompt dialog when user chooses "Skip"
+  const handlePromptSkipAndSubmit = useCallback(() => {
+    setClientSkipped(true);
+    // Need to execute submit after state update
+    setTimeout(() => executeSubmit(), 0);
+  }, [executeSubmit]);
 
   /* ── Print handlers ────────────────────────────────────────────────── */
   const handlePrint = useCallback((mode: 'receipt' | 'invoice') => {
@@ -314,7 +442,6 @@ export default function POSPage() {
     setAmountReceived(0);
   }, []);
 
-  // Reset printMode after printing
   useEffect(() => {
     const handler = () => setPrintMode(null);
     window.addEventListener('afterprint', handler);
@@ -337,8 +464,12 @@ export default function POSPage() {
     onRemove: removeFromCart,
     onClearCart: clearCart,
     clients,
-    clientId,
-    onClientChange: setClientId,
+    selectedClient,
+    clientSkipped,
+    onSelectClient: handleSelectClient,
+    onSkipClient: handleSkipClient,
+    onClearClient: handleClearClient,
+    onAddClientClick: () => setAddClientOpen(true),
     paymentMethod,
     onPaymentMethodChange: setPaymentMethod,
     customerNote,
@@ -375,6 +506,7 @@ export default function POSPage() {
             products={channelProducts}
             cartQuantities={cartQuantities}
             onAddToCart={addToCart}
+            onCameraScan={() => setCameraOpen(true)}
             isLoading={isProductsLoading}
             isFetchingNextPage={isFetchingNextPage}
             hasNextPage={hasNextPage}
@@ -437,6 +569,32 @@ export default function POSPage() {
           </DrawerContent>
         </Drawer>
       )}
+
+      {/* ── Camera barcode scanner ─────────────────────────────────── */}
+      <POSCameraScanner
+        open={cameraOpen}
+        onOpenChange={setCameraOpen}
+        onBarcodeDetected={handleBarcodeDetected}
+        feedbackMessage={scanFeedback}
+        feedbackType={scanFeedbackType}
+      />
+
+      {/* ── Add client dialog ──────────────────────────────────────── */}
+      <POSAddClientDialog
+        open={addClientOpen}
+        onOpenChange={setAddClientOpen}
+        channel={selectedChannel}
+        onClientCreated={handleClientCreated}
+      />
+
+      {/* ── Client prompt dialog (order validation) ────────────────── */}
+      <POSClientPromptDialog
+        open={clientPromptOpen}
+        onOpenChange={setClientPromptOpen}
+        onSelectClient={handleClearClient} // Opens customer section in default state
+        onAddClient={() => setAddClientOpen(true)}
+        onSkip={handlePromptSkipAndSubmit}
+      />
 
       {/* ── Post-order dialog ────────────────────────────────────────── */}
       <POSPostOrderDialog

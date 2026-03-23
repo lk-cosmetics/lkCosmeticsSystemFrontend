@@ -324,6 +324,23 @@ class ProductService {
   ): Promise<ProductListItem[]> {
     return this.getAllProducts({ ...params, search: query });
   }
+
+  /**
+   * Search product by exact barcode match.
+   * Uses the dedicated /search_barcode/ endpoint.
+   * Returns the full Product or null if not found.
+   */
+  async searchByBarcode(barcode: string): Promise<Product | null> {
+    try {
+      const response = await apiClient.get<Product>(
+        `${PRODUCT_ENDPOINT}search_barcode/`,
+        { params: { barcode } },
+      );
+      return response.data;
+    } catch {
+      return null;
+    }
+  }
 }
 
 export const productService = new ProductService();

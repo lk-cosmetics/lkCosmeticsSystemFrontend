@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { Search, Store, Loader2 } from 'lucide-react';
+import { Search, Store, Loader2, Camera } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ interface POSProductGridProps {
   products: ProductListItem[];
   cartQuantities: Map<number, number>;
   onAddToCart: (product: ProductListItem) => void;
+  onCameraScan: () => void;
   isLoading?: boolean;
   isFetchingNextPage?: boolean;
   hasNextPage?: boolean;
@@ -38,6 +39,7 @@ export function POSProductGrid({
   products,
   cartQuantities,
   onAddToCart,
+  onCameraScan,
   isLoading,
   isFetchingNextPage,
   hasNextPage,
@@ -90,15 +92,28 @@ export function POSProductGrid({
 
         <div className="flex-1">
           <Label className="text-xs mb-1 block">Search Products</Label>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by name or barcode..."
-              className="pl-9"
-              value={productSearch}
-              onChange={e => onSearchChange(e.target.value)}
+          <div className="flex gap-1.5">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Search by name or barcode..."
+                className="pl-9"
+                value={productSearch}
+                onChange={e => onSearchChange(e.target.value)}
+                disabled={!channelId}
+              />
+            </div>
+            <Button
+              variant="outline"
+              size="icon"
+              className="shrink-0 size-9"
+              onClick={onCameraScan}
               disabled={!channelId}
-            />
+              aria-label="Scan barcode with camera"
+              title="Scan with Camera"
+            >
+              <Camera className="size-4" />
+            </Button>
           </div>
         </div>
       </div>

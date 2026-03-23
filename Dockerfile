@@ -14,9 +14,15 @@ RUN npm run build
 FROM nginx:1.27-alpine AS runtime
 WORKDIR /usr/share/nginx/html
 
+# Install openssl for self-signed cert generation
+RUN apk add --no-cache openssl
+
 # Use nginx template + envsubst so upstream backend host can be configured per environment.
 COPY nginx.conf /etc/nginx/templates/default.conf.template
+COPY docker-entrypoint-ssl.sh /docker-entrypoint-ssl.sh
+RUN chmod +x /docker-entrypoint-ssl.sh
 COPY --from=builder /app/dist ./
 
-EXPOSE 80
+EXPOSE 80 443
+ENTRYPOINT ["/docker-entrypoint-ssl.sh"]
 CMD ["nginx", "-g", "daemon off;"]

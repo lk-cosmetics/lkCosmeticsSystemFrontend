@@ -1,6 +1,5 @@
 import {
   ShoppingCart,
-  User,
   CreditCard,
   Banknote,
   Building2,
@@ -14,15 +13,9 @@ import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { Separator } from '@/components/ui/separator';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { POSCartItem } from './POSCartItem';
 import { POSCalculator } from './POSCalculator';
+import { POSCustomerSection } from './POSCustomerSection';
 import { fmtTND } from './types';
 import type { Client } from '@/types';
 import type { CartLine } from './types';
@@ -44,9 +37,15 @@ interface POSCartProps {
   onQtyChange: (productId: number, delta: number) => void;
   onRemove: (productId: number) => void;
   onClearCart: () => void;
+  /* Customer handling */
   clients: Client[];
-  clientId: string;
-  onClientChange: (value: string) => void;
+  selectedClient: Client | null;
+  clientSkipped: boolean;
+  onSelectClient: (client: Client) => void;
+  onSkipClient: () => void;
+  onClearClient: () => void;
+  onAddClientClick: () => void;
+  /* Payment & checkout */
   paymentMethod: string;
   onPaymentMethodChange: (value: string) => void;
   customerNote: string;
@@ -68,8 +67,12 @@ export function POSCart({
   onRemove,
   onClearCart,
   clients,
-  clientId,
-  onClientChange,
+  selectedClient,
+  clientSkipped,
+  onSelectClient,
+  onSkipClient,
+  onClearClient,
+  onAddClientClick,
   paymentMethod,
   onPaymentMethodChange,
   customerNote,
@@ -135,30 +138,18 @@ export function POSCart({
         <>
           <Separator />
 
-          {/* Customer */}
+          {/* Customer — no default, must explicitly select/skip */}
           <div>
-            <Label className="text-xs mb-1 block">Customer</Label>
-            <Select
-              value={clientId || '__walk_in__'}
-              onValueChange={v => onClientChange(v === '__walk_in__' ? '' : v)}
-            >
-              <SelectTrigger className="h-8 text-sm">
-                <SelectValue placeholder="Walk-in" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__walk_in__">
-                  <div className="flex items-center gap-2">
-                    <User className="size-3.5" />
-                    Walk-in customer
-                  </div>
-                </SelectItem>
-                {clients.map(c => (
-                  <SelectItem key={c.id} value={String(c.id)}>
-                    {c.full_name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label className="text-xs mb-1.5 block">Customer</Label>
+            <POSCustomerSection
+              clients={clients}
+              selectedClient={selectedClient}
+              clientSkipped={clientSkipped}
+              onSelectClient={onSelectClient}
+              onSkipClient={onSkipClient}
+              onClearClient={onClearClient}
+              onAddClientClick={onAddClientClick}
+            />
           </div>
 
           {/* Payment Method */}
