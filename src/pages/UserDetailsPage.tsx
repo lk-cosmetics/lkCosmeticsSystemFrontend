@@ -192,13 +192,13 @@ export default function UserDetailsPage() {
               <div className="flex gap-2 mt-4">
                 <Badge
                   variant={
-                    user.role_name.toLowerCase().includes('admin')
+                    (user.role_name || '').toLowerCase().includes('admin')
                       ? 'default'
                       : 'secondary'
                   }
                 >
                   <Shield className="size-3 mr-1" />
-                  {user.role_name}
+                  {user.role_name || 'No role'}
                 </Badge>
                 <Badge variant={user.is_active ? 'default' : 'destructive'}>
                   {user.is_active ? 'Active' : 'Inactive'}
@@ -305,7 +305,7 @@ export default function UserDetailsPage() {
                   <label className="text-sm font-medium text-muted-foreground">
                     Role
                   </label>
-                  <p className="mt-1">{user.role_name}</p>
+                  <p className="mt-1">{user.role_name || 'No role'}</p>
                 </div>
                 <div>
                   <label className="text-sm font-medium text-muted-foreground">

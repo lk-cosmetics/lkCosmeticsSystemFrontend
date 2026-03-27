@@ -19,7 +19,6 @@ import type {
 
 export interface UserFilters {
   search?: string;
-  role?: number;
   is_active?: boolean;
   current_company?: number;
   ordering?: string;
@@ -36,7 +35,6 @@ class UserService {
     const params = new URLSearchParams();
 
     if (filters?.search) params.append('search', filters.search);
-    if (filters?.role) params.append('role', filters.role.toString());
     if (filters?.is_active !== undefined)
       params.append('is_active', filters.is_active.toString());
     if (filters?.current_company)
@@ -188,6 +186,37 @@ class UserService {
       data
     );
     console.log('📥 Admin Reset Password - Response:', response.data);
+    return response.data;
+  }
+
+  // ── Invitations ──────────────────────────────────────────────────
+
+  async inviteEmployee(data: {
+    email: string;
+    role_id: number;
+    company_id: number;
+    brand_ids?: number[];
+    sales_channel_id?: number | null;
+  }) {
+    const response = await apiClient.post(
+      `${AUTH_CONFIG.USER_ENDPOINT}invite/`,
+      data
+    );
+    return response.data;
+  }
+
+  async getInvitations() {
+    const response = await apiClient.get(
+      `${AUTH_CONFIG.USER_ENDPOINT}invitations/`
+    );
+    const data = response.data;
+    return Array.isArray(data) ? data : data.results ?? [];
+  }
+
+  async cancelInvitation(id: number) {
+    const response = await apiClient.post(
+      `${AUTH_CONFIG.USER_ENDPOINT}invitations/${id}/cancel/`
+    );
     return response.data;
   }
 }

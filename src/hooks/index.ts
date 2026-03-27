@@ -6,6 +6,7 @@ export * from './useUserFilters';
 export * from './useUserActions';
 export * from './useAuth';
 export * from './usePreferences';
+export * from './useWebSocket';
 
 // React Query hooks
 export * from './queries';

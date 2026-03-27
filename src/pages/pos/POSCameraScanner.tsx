@@ -15,7 +15,7 @@
  *   4. Manual fallback input always available
  */
 import { useState, useRef, useEffect, useCallback } from 'react';
-import { Camera, X, Keyboard, Loader2, AlertTriangle } from 'lucide-react';
+import { Camera, X, Keyboard, Loader2, AlertTriangle, Copy, Check } from 'lucide-react';
 import type { Html5Qrcode as Html5QrcodeType } from 'html5-qrcode';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,6 +31,34 @@ import {
 
 const SCANNER_ELEMENT_ID = 'pos-barcode-scanner';
 const SCAN_COOLDOWN_MS = 2000;
+const HTML_TAG_RE = /<[^>]+>/;
+
+const sanitizeFeedbackMessage = (message: string): string => {
+  const trimmed = message.trim();
+  if (!trimmed) return '';
+
+  const looksLikeHtml = trimmed.includes('<!DOCTYPE html') || HTML_TAG_RE.test(trimmed);
+  const normalized = looksLikeHtml
+    ? trimmed
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&quot;/g, '"')
+        .replace(/&#x27;/g, "'")
+        .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/\s+/g, ' ')
+        .trim()
+    : trimmed;
+
+  if (!normalized) return '';
+
+  if (looksLikeHtml || normalized.length > 220) {
+    return 'Unexpected server error. Please retry. You can use Copy error to share details.';
+  }
+
+  return normalized;
+};
 
 /* ── Component ────────────────────────────────────────────────────────── */
 
@@ -57,6 +85,8 @@ export function POSCameraScanner({
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [manualBarcode, setManualBarcode] = useState('');
   const [scanning, setScanning] = useState(false);
+  const [copyState, setCopyState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const safeFeedbackMessage = feedbackMessage ? sanitizeFeedbackMessage(feedbackMessage) : null;
 
   // Stable ref for the callback to avoid restarting the scanner
   const onBarcodeRef = useRef(onBarcodeDetected);
@@ -197,6 +227,39 @@ export function POSCameraScanner({
     }
   };
 
+  const handleCopyError = useCallback(async () => {
+    if (!cameraError) return;
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(cameraError);
+        setCopyState('copied');
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = cameraError;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.focus();
+        textArea.select();
+
+        const copied = document.execCommand('copy');
+        document.body.removeChild(textArea);
+
+        setCopyState(copied ? 'copied' : 'failed');
+      }
+    } catch {
+      setCopyState('failed');
+    }
+  }, [cameraError]);
+
+  useEffect(() => {
+    if (copyState === 'idle') return;
+
+    const timer = window.setTimeout(() => setCopyState('idle'), 2000);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg p-0 overflow-hidden">
@@ -235,19 +298,47 @@ export function POSCameraScanner({
 
         {/* ── Camera error ── */}
         {cameraError && mode === 'camera' && (
-          <div className="mx-4 p-3 rounded-lg bg-destructive/10 text-destructive text-sm flex items-start gap-2">
-            <AlertTriangle className="size-4 shrink-0 mt-0.5" />
-            <div>
+          <div className="mx-4 p-3 rounded-lg border border-destructive/30 bg-destructive/10 text-destructive">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="size-4 shrink-0 mt-0.5" />
+              <div className="min-w-0 flex-1">
               <p className="font-medium">Camera unavailable</p>
-              <p className="text-xs mt-0.5">{cameraError}</p>
-              <Button
-                variant="link"
-                size="sm"
-                className="h-auto p-0 text-xs mt-1 text-destructive underline"
-                onClick={() => startScanner()}
-              >
-                Retry
-              </Button>
+                <p className="mt-1 text-sm leading-5 break-words whitespace-pre-wrap">{cameraError}</p>
+              </div>
+            </div>
+            <div className="mt-3 flex flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-h-5 text-xs">
+                {copyState === 'copied' && <span className="text-emerald-700">Error copied</span>}
+                {copyState === 'failed' && <span className="text-destructive">Copy failed. Please copy manually.</span>}
+              </div>
+              <div className="flex w-full gap-2 sm:w-auto">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 flex-1 sm:flex-none"
+                  onClick={handleCopyError}
+                >
+                  {copyState === 'copied' ? (
+                    <>
+                      <Check className="mr-1 size-3.5" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="mr-1 size-3.5" />
+                      Copy error
+                    </>
+                  )}
+                </Button>
+                <Button
+                  variant="default"
+                  size="sm"
+                  className="h-8 flex-1 sm:flex-none"
+                  onClick={() => startScanner()}
+                >
+                  Retry
+                </Button>
+              </div>
             </div>
           </div>
         )}
@@ -277,7 +368,7 @@ export function POSCameraScanner({
         )}
 
         {/* ── Feedback message ── */}
-        {feedbackMessage && (
+        {safeFeedbackMessage && (
           <div
             className={`mx-4 p-2.5 rounded-lg text-sm font-medium text-center ${
               feedbackType === 'success'
@@ -285,7 +376,7 @@ export function POSCameraScanner({
                 : 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-400'
             }`}
           >
-            {feedbackMessage}
+            <p className="break-words whitespace-pre-wrap leading-5">{safeFeedbackMessage}</p>
           </div>
         )}
 

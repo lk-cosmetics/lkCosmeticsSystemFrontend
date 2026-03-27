@@ -23,7 +23,6 @@ export const AUTH_CONFIG = {
   BRAND_ENDPOINT: '/api/v1/brands/',
   SALES_CHANNEL_ENDPOINT: '/api/v1/sales-channels/',
   USER_ENDPOINT: '/api/v1/users/',
-  ROLE_ENDPOINT: '/api/v1/users/roles/',
   PROFILE_ENDPOINT: '/api/v1/users/profiles/',
   STORAGE_KEY: {
     // HttpOnly cookies (managed by backend)

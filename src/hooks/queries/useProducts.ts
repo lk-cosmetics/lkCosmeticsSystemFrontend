@@ -22,6 +22,7 @@ export const productsKeys = {
   infinite: (filters?: Record<string, unknown>) => [...productsKeys.all, 'infinite', filters] as const,
   details: () => [...productsKeys.all, 'detail'] as const,
   detail: (id: number) => [...productsKeys.details(), id] as const,
+  packStock: (id: number) => [...productsKeys.all, 'pack-stock', id] as const,
 };
 
 type ProductsInfinitePageParam = {
@@ -33,52 +34,43 @@ type ProductsInfinitePageParam = {
 // QUERIES
 // ============================================================================
 
-/**
- * Fetch all products (no pagination)
- */
-export function useProducts() {
+export function useProducts(enabled = true) {
   return useQuery({
     queryKey: productsKeys.lists(),
     queryFn: () => productService.getAllProducts(),
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 5 * 60 * 1000,
+    enabled,
   });
 }
 
-/**
- * Fetch products with server-side pagination and filters
- */
 export function useProductsPaginated(params: {
   page?: number;
   page_size?: number;
   limit?: number;
   offset?: number;
   search?: string;
-  sales_channel?: number;
   brand?: number;
   status?: 'publish' | 'draft' | 'pending' | 'private';
-  inventory_status?: 'instock' | 'outofstock' | 'onbackorder';
+  product_type?: string;
   ordering?: string;
+  show_deleted?: boolean;
+  only_deleted?: boolean;
 }) {
   return useQuery({
     queryKey: productsKeys.list(params as Record<string, unknown>),
     queryFn: () => productService.getProductsPaginated(params),
-    staleTime: 30 * 1000, // 30 seconds
+    staleTime: 30 * 1000,
     placeholderData: keepPreviousData,
   });
 }
 
-/**
- * Fetch products with infinite scrolling
- */
 export function useInfiniteProducts(params: {
   page_size?: number;
   limit?: number;
   offset?: number;
   search?: string;
-  sales_channel?: number;
   brand?: number;
   status?: 'publish' | 'draft' | 'pending' | 'private';
-  inventory_status?: 'instock' | 'outofstock' | 'onbackorder';
   ordering?: string;
   enabled?: boolean;
 }) {
@@ -86,28 +78,19 @@ export function useInfiniteProducts(params: {
     nextUrl: string | null
   ): ProductsInfinitePageParam | undefined => {
     if (!nextUrl) return undefined;
-
     let parsedUrl: URL;
     try {
       parsedUrl = new URL(nextUrl, window.location.origin);
     } catch {
       return undefined;
     }
-
     const page = parsedUrl.searchParams.get('page');
-    if (page) {
-      return { page: Number(page) };
-    }
-
+    if (page) return { page: Number(page) };
     const offset = parsedUrl.searchParams.get('offset');
-    if (offset) {
-      return { offset: Number(offset) };
-    }
-
+    if (offset) return { offset: Number(offset) };
     return undefined;
   };
 
-  // Extract enabled flag separately (React Query configuration)
   const { enabled = true, ...queryParams } = params;
 
   return useInfiniteQuery<
@@ -126,17 +109,12 @@ export function useInfiniteProducts(params: {
       });
     },
     initialPageParam: { page: 1 },
-    getNextPageParam: (lastPage) => {
-      return resolveNextPageParam(lastPage.next);
-    },
+    getNextPageParam: (lastPage) => resolveNextPageParam(lastPage.next),
     staleTime: 30 * 1000,
     enabled,
   });
 }
 
-/**
- * Fetch single product by ID
- */
 export function useProduct(id: number) {
   return useQuery({
     queryKey: productsKeys.detail(id),
@@ -145,16 +123,21 @@ export function useProduct(id: number) {
   });
 }
 
+export function usePackStock(productId: number, enabled = true) {
+  return useQuery({
+    queryKey: productsKeys.packStock(productId),
+    queryFn: () => productService.getPackStock(productId),
+    enabled: enabled && !!productId,
+    staleTime: 30 * 1000,
+  });
+}
+
 // ============================================================================
 // MUTATIONS
 // ============================================================================
 
-/**
- * Create new product
- */
 export function useCreateProduct() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: (data: CreateProductRequest) => productService.createProduct(data),
     onSuccess: () => {
@@ -163,12 +146,8 @@ export function useCreateProduct() {
   });
 }
 
-/**
- * Update existing product
- */
 export function useUpdateProduct() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: UpdateProductRequest }) =>
       productService.updateProduct(id, data),
@@ -179,12 +158,8 @@ export function useUpdateProduct() {
   });
 }
 
-/**
- * Partial update existing product
- */
 export function usePartialUpdateProduct() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: ({ id, data }: { id: number; data: Partial<UpdateProductRequest> }) =>
       productService.partialUpdateProduct(id, data),
@@ -195,12 +170,8 @@ export function usePartialUpdateProduct() {
   });
 }
 
-/**
- * Delete product
- */
 export function useDeleteProduct() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: (id: number) => productService.deleteProduct(id),
     onSuccess: () => {
@@ -209,22 +180,25 @@ export function useDeleteProduct() {
   });
 }
 
-/**
- * Bulk delete products
- */
+export function useHardDeleteProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => productService.hardDeleteProduct(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: productsKeys.all });
+    },
+  });
+}
+
 export function useBulkDeleteProducts() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async (ids: number[]) => {
-      // Delete products one by one
       const results = await Promise.allSettled(
-        ids.map(id => productService.deleteProduct(id))
+        ids.map(id => productService.deleteProduct(id)),
       );
-      
       const successCount = results.filter(r => r.status === 'fulfilled').length;
       const errorCount = results.filter(r => r.status === 'rejected').length;
-      
       return { successCount, errorCount, total: ids.length };
     },
     onSuccess: () => {
@@ -233,14 +207,37 @@ export function useBulkDeleteProducts() {
   });
 }
 
-/**
- * Sync products from WooCommerce
- */
+export function useBulkHardDeleteProducts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (ids: number[]) => {
+      const results = await Promise.allSettled(
+        ids.map(id => productService.hardDeleteProduct(id)),
+      );
+      const successCount = results.filter(r => r.status === 'fulfilled').length;
+      const errorCount = results.filter(r => r.status === 'rejected').length;
+      return { successCount, errorCount, total: ids.length };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: productsKeys.all });
+    },
+  });
+}
+
+export function useRestoreProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number) => productService.restoreProduct(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: productsKeys.all });
+    },
+  });
+}
+
 export function useSyncProductsFromWooCommerce() {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: (salesChannelId: number) => 
+    mutationFn: (salesChannelId: number) =>
       productService.syncFromWooCommerce(salesChannelId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: productsKeys.all });
@@ -248,24 +245,17 @@ export function useSyncProductsFromWooCommerce() {
   });
 }
 
-/**
- * Preview products from WooCommerce
- */
 export function usePreviewProductsFromWooCommerce() {
   return useMutation({
-    mutationFn: (salesChannelId: number) => 
+    mutationFn: (salesChannelId: number) =>
       productService.previewFromWooCommerce(salesChannelId),
   });
 }
 
-/**
- * Sync selected products from WooCommerce
- */
 export function useSyncSelectedProductsFromWooCommerce() {
   const queryClient = useQueryClient();
-
   return useMutation({
-    mutationFn: ({ salesChannelId, wcProductIds }: { salesChannelId: number; wcProductIds: number[] }) => 
+    mutationFn: ({ salesChannelId, wcProductIds }: { salesChannelId: number; wcProductIds: number[] }) =>
       productService.syncSelectedFromWooCommerce(salesChannelId, wcProductIds),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: productsKeys.all });

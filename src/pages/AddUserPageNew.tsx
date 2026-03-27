@@ -49,10 +49,10 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { userService } from '@/services/user.service';
-import { roleService } from '@/services/role.service';
+import { rbacService, type RBACRole } from '@/services/rbac.service';
 import { companyService } from '@/services/company.service';
 import { brandService } from '@/services/brand.service';
-import type { Role, CompanyListItem, Brand, EducationLevel } from '@/types';
+import type { CompanyListItem, Brand, EducationLevel } from '@/types';
 import { EDUCATION_LEVELS } from '@/types';
 import { toast } from 'sonner';
 
@@ -129,7 +129,7 @@ export default function AddUserPage() {
   const navigate = useNavigate();
 
   // Data states
-  const [roles, setRoles] = useState<Role[]>([]);
+  const [roles, setRoles] = useState<RBACRole[]>([]);
   const [companies, setCompanies] = useState<CompanyListItem[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [filteredBrands, setFilteredBrands] = useState<Brand[]>([]);
@@ -167,7 +167,7 @@ export default function AddUserPage() {
       setIsLoadingData(true);
       try {
         const [rolesData, companiesData, brandsData] = await Promise.all([
-          roleService.getAllRoles(),
+          rbacService.getRoles(),
           companyService.getAllCompanies(),
           brandService.getAllBrands(),
         ]);
@@ -228,7 +228,6 @@ export default function AddUserPage() {
         password_confirm: data.password_confirm,
         first_name: data.first_name,
         last_name: data.last_name,
-        role: data.role || undefined,
         current_company: data.current_company || undefined,
         allowed_brands: selectedBrands.length > 0 ? selectedBrands : undefined,
         // Profile fields
@@ -317,11 +316,6 @@ export default function AddUserPage() {
             };
           }
 
-          // Find role by name (optional)
-          const role = user.role
-            ? roles.find(r => r.name.toLowerCase() === user.role.toLowerCase())
-            : null;
-
           const tempPassword = 'TempPass123!';
           await userService.createUser({
             email: user.email,
@@ -329,7 +323,6 @@ export default function AddUserPage() {
             last_name: user.last_name,
             password: tempPassword,
             password_confirm: tempPassword,
-            role: role?.id,
           });
 
           return { ...user, status: 'success' as const };

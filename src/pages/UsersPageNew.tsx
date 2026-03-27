@@ -9,6 +9,7 @@ import {
   MoreVertical,
   UserCheck,
   UserX,
+  UserPlus,
   Mail,
   Shield,
   Calendar,
@@ -17,6 +18,7 @@ import {
   ChevronRight,
   Key,
   Loader2,
+  Send,
 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -54,6 +56,7 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
@@ -66,9 +69,12 @@ import {
 } from '@/components/ui/select';
 import { ChangePasswordModal } from '@/components/ChangePasswordModal';
 import { userService, type UserFilters } from '@/services/user.service';
-import { roleService } from '@/services/role.service';
+import { rbacService, type RBACRole } from '@/services/rbac.service';
 import { companyService } from '@/services/company.service';
-import type { UserListItem, Role, CompanyListItem, PaginatedResponse } from '@/types';
+import { brandService } from '@/services/brand.service';
+import { salesChannelService } from '@/services/salesChannel.service';
+import type { UserListItem, CompanyListItem, Brand, SalesChannel, PaginatedResponse } from '@/types';
+import { Checkbox } from '@/components/ui/checkbox';
 import { useDebounce } from '@/hooks';
 import { toast } from 'sonner';
 import { getMediaUrl } from '@/utils/helpers';
@@ -78,7 +84,7 @@ export default function UsersPage() {
 
   // Data states
   const [users, setUsers] = useState<UserListItem[]>([]);
-  const [roles, setRoles] = useState<Role[]>([]);
+  const [roles, setRoles] = useState<RBACRole[]>([]);
   const [companies, setCompanies] = useState<CompanyListItem[]>([]);
   const [pagination, setPagination] = useState({
     count: 0,
@@ -105,6 +111,17 @@ export default function UsersPage() {
   const [statusDialogOpen, setStatusDialogOpen] = useState(false);
   const [passwordDialogOpen, setPasswordDialogOpen] = useState(false);
 
+  // Invite dialog states
+  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteRoleId, setInviteRoleId] = useState<string>('');
+  const [inviteCompanyId, setInviteCompanyId] = useState<string>('');
+  const [inviteBrandIds, setInviteBrandIds] = useState<number[]>([]);
+  const [inviteSalesChannelId, setInviteSalesChannelId] = useState<string>('');
+  const [inviteBrands, setInviteBrands] = useState<Brand[]>([]);
+  const [inviteChannels, setInviteChannels] = useState<SalesChannel[]>([]);
+  const [isInviting, setIsInviting] = useState(false);
+
   // Selected user states
   const [selectedUser, setSelectedUser] = useState<UserListItem | null>(null);
   const [userToDelete, setUserToDelete] = useState<UserListItem | null>(null);
@@ -121,7 +138,6 @@ export default function UsersPage() {
         const filters: UserFilters = { page };
 
         if (debouncedSearch) filters.search = debouncedSearch;
-        if (roleFilter !== 'all') filters.role = parseInt(roleFilter);
         if (statusFilter !== 'all')
           filters.is_active = statusFilter === 'active';
         if (companyFilter !== 'all')
@@ -145,7 +161,7 @@ export default function UsersPage() {
         setIsLoading(false);
       }
     },
-    [debouncedSearch, roleFilter, statusFilter, companyFilter]
+    [debouncedSearch, statusFilter, companyFilter]
   );
 
   // Fetch roles and companies for filters
@@ -153,7 +169,7 @@ export default function UsersPage() {
     const fetchFiltersData = async () => {
       try {
         const [rolesData, companiesData] = await Promise.all([
-          roleService.getAllRoles(),
+          rbacService.getRoles(),
           companyService.getAllCompanies(),
         ]);
         setRoles(rolesData);
@@ -239,8 +255,89 @@ export default function UsersPage() {
     setPasswordDialogOpen(true);
   };
 
-  const getRoleBadgeVariant = (roleName: string) => {
-    const name = roleName.toLowerCase();
+  // Invite dialog handlers
+  const openInviteDialog = () => {
+    setInviteEmail('');
+    setInviteRoleId('');
+    setInviteCompanyId('');
+    setInviteBrandIds([]);
+    setInviteSalesChannelId('');
+    setInviteBrands([]);
+    setInviteChannels([]);
+    setInviteDialogOpen(true);
+  };
+
+  const handleInviteCompanyChange = async (companyId: string) => {
+    setInviteCompanyId(companyId);
+    setInviteBrandIds([]);
+    setInviteSalesChannelId('');
+    setInviteChannels([]);
+    if (companyId) {
+      try {
+        const brands = await brandService.getBrandsByCompany(parseInt(companyId));
+        setInviteBrands(brands);
+      } catch {
+        setInviteBrands([]);
+      }
+    } else {
+      setInviteBrands([]);
+    }
+  };
+
+  const handleInviteBrandToggle = async (brandId: number) => {
+    const updated = inviteBrandIds.includes(brandId)
+      ? inviteBrandIds.filter(id => id !== brandId)
+      : [...inviteBrandIds, brandId];
+    setInviteBrandIds(updated);
+    setInviteSalesChannelId('');
+
+    // Load sales channels for selected brands
+    if (updated.length > 0) {
+      try {
+        const allChannels = await salesChannelService.getAllChannels();
+        setInviteChannels(allChannels.filter(ch => updated.includes(ch.brand)));
+      } catch {
+        setInviteChannels([]);
+      }
+    } else {
+      setInviteChannels([]);
+    }
+  };
+
+  const handleSendInvite = async () => {
+    if (!inviteEmail || !inviteRoleId || !inviteCompanyId) {
+      toast.error('Please fill in email, role, and company');
+      return;
+    }
+
+    setIsInviting(true);
+    try {
+      await userService.inviteEmployee({
+        email: inviteEmail,
+        role_id: parseInt(inviteRoleId),
+        company_id: parseInt(inviteCompanyId),
+        brand_ids: inviteBrandIds.length > 0 ? inviteBrandIds : undefined,
+        sales_channel_id: inviteSalesChannelId ? parseInt(inviteSalesChannelId) : undefined,
+      });
+      toast.success(`Invitation sent to ${inviteEmail}`);
+      setInviteDialogOpen(false);
+    } catch (error: any) {
+      const detail = error?.response?.data;
+      if (detail && typeof detail === 'object') {
+        const messages = Object.entries(detail)
+          .map(([key, val]) => `${key}: ${Array.isArray(val) ? val.join(', ') : val}`)
+          .join('\n');
+        toast.error(messages || 'Failed to send invitation');
+      } else {
+        toast.error('Failed to send invitation');
+      }
+    } finally {
+      setIsInviting(false);
+    }
+  };
+
+  const getRoleBadgeVariant = (roleName: string | null) => {
+    const name = (roleName || '').toLowerCase();
     if (name.includes('admin') || name.includes('super')) return 'default';
     if (name.includes('manager')) return 'secondary';
     return 'outline';
@@ -267,12 +364,18 @@ export default function UsersPage() {
               Manage user accounts, roles, and permissions
             </p>
           </div>
-          <Button asChild className="gap-2">
-            <Link to="/dashboard/add-user">
-              <UserCheck className="size-4" />
-              Add New User
-            </Link>
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" className="gap-2" onClick={openInviteDialog}>
+              <Send className="size-4" />
+              Invite User
+            </Button>
+            <Button asChild className="gap-2">
+              <Link to="/dashboard/add-user">
+                <UserPlus className="size-4" />
+                Add User
+              </Link>
+            </Button>
+          </div>
         </div>
 
         {/* Filters */}
@@ -414,7 +517,7 @@ export default function UsersPage() {
                       className="capitalize"
                     >
                       <Shield className="size-3 mr-1" />
-                      {user.role_name}
+                      {user.role_name || 'No role'}
                     </Badge>
                   </TableCell>
 
@@ -574,7 +677,7 @@ export default function UsersPage() {
                     <Badge
                       variant={getRoleBadgeVariant(selectedUser.role_name)}
                     >
-                      {selectedUser.role_name}
+                      {selectedUser.role_name || 'No role'}
                     </Badge>
                     <Badge
                       variant={
@@ -736,6 +839,123 @@ export default function UsersPage() {
           }}
         />
       )}
+
+      {/* Invite User Dialog */}
+      <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
+        <DialogContent className="sm:max-w-[500px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Send className="size-5" />
+              Invite Employee
+            </DialogTitle>
+            <DialogDescription>
+              Send an invitation email. The user will complete their registration via the link.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 py-2">
+            {/* Email */}
+            <div className="space-y-2">
+              <Label htmlFor="invite-email">Email *</Label>
+              <Input
+                id="invite-email"
+                type="email"
+                placeholder="employee@example.com"
+                value={inviteEmail}
+                onChange={e => setInviteEmail(e.target.value)}
+              />
+            </div>
+
+            {/* Role */}
+            <div className="space-y-2">
+              <Label>Role *</Label>
+              <Select value={inviteRoleId} onValueChange={setInviteRoleId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map(role => (
+                    <SelectItem key={role.id} value={role.id.toString()}>
+                      {role.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Company */}
+            <div className="space-y-2">
+              <Label>Company *</Label>
+              <Select value={inviteCompanyId} onValueChange={handleInviteCompanyChange}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a company" />
+                </SelectTrigger>
+                <SelectContent>
+                  {companies.map(company => (
+                    <SelectItem key={company.id} value={company.id.toString()}>
+                      {company.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Brands (shown after company is selected) */}
+            {inviteBrands.length > 0 && (
+              <div className="space-y-2">
+                <Label>Brands</Label>
+                <div className="border rounded-md p-3 space-y-2 max-h-[140px] overflow-y-auto">
+                  {inviteBrands.map(brand => (
+                    <div key={brand.id} className="flex items-center gap-2">
+                      <Checkbox
+                        id={`brand-${brand.id}`}
+                        checked={inviteBrandIds.includes(brand.id)}
+                        onCheckedChange={() => handleInviteBrandToggle(brand.id)}
+                      />
+                      <Label htmlFor={`brand-${brand.id}`} className="cursor-pointer font-normal">
+                        {brand.name}
+                      </Label>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sales Channel (shown after brands are selected) */}
+            {inviteChannels.length > 0 && (
+              <div className="space-y-2">
+                <Label>Sales Channel</Label>
+                <Select value={inviteSalesChannelId} onValueChange={setInviteSalesChannelId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a sales channel (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {inviteChannels.map(ch => (
+                      <SelectItem key={ch.id} value={ch.id.toString()}>
+                        {ch.name} ({ch.brand_name})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setInviteDialogOpen(false)} disabled={isInviting}>
+              Cancel
+            </Button>
+            <Button onClick={handleSendInvite} disabled={isInviting} className="gap-2">
+              {isInviting ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Send className="size-4" />
+              )}
+              {isInviting ? 'Sending...' : 'Send Invitation'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

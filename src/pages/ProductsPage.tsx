@@ -1,281 +1,319 @@
-import { useCallback, useEffect, useState, useMemo, memo } from 'react';
+/**
+ * ProductsPage — Product management with soft delete, barcode scanning,
+ * pack/bundle support, and responsive modern UI.
+ *
+ * Performance optimizations:
+ *   - Memoized ProductRow prevents unnecessary re-renders
+ *   - Debounced search (300ms) for live table filtering
+ *   - Lazy-loaded camera scanner (html5-qrcode only when dialog opens)
+ *   - Stable callback refs avoid effect re-subscriptions
+ *   - PackBuilder only fetches all products when pack form is open
+ */
 import {
-  Eye,
-  Pencil,
-  Trash2,
-  Search,
-  Filter,
-  MoreVertical,
-  Package,
-  Tag,
-  Calendar,
-  Store,
-  Layers,
-  AlertTriangle,
-  CheckCircle2,
-  XCircle,
-  Barcode,
-  Plus,
-  RefreshCw,
-  Globe,
-  FolderTree,
-  Loader2,
-  Check,
-  Percent,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
+  useCallback, useEffect, useState, useMemo, useRef, memo, lazy, Suspense,
+} from 'react';
+import {
+  Eye, Pencil, Trash2, Search, MoreVertical, Package,
+  Plus, RefreshCw, Globe, Loader2, Check,
+  ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight,
+  RotateCcw, ScanBarcode, ExternalLink, X, Filter,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
-import { Textarea } from '@/components/ui/textarea';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead,
+  TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
+  AlertDialog, AlertDialogAction, AlertDialogCancel,
+  AlertDialogContent, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogDescription,
+  DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem,
+  SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  Drawer, DrawerContent, DrawerHeader, DrawerTitle,
+} from '@/components/ui/drawer';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Switch } from '@/components/ui/switch';
+import { Separator } from '@/components/ui/separator';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { useAuthStore } from '@/store/authStore';
 import { hasRole } from '@/hooks/useAuth';
-import { promotionService } from '@/services/promotion.service';
 import { getMediaUrl } from '@/utils/helpers';
+import { productService } from '@/services/product.service';
 import {
+  useProducts,
   useProductsPaginated,
   useSalesChannels,
   useBrands,
-  useCategories,
   useDeleteProduct,
+  useHardDeleteProduct,
   useBulkDeleteProducts,
+  useBulkHardDeleteProducts,
   useCreateProduct,
   usePartialUpdateProduct,
+  useRestoreProduct,
   useSyncProductsFromWooCommerce,
   usePreviewProductsFromWooCommerce,
   useSyncSelectedProductsFromWooCommerce,
 } from '@/hooks/queries';
-
 import type {
-  ProductListItem,
-  SalesChannel,
-  InventoryStatus,
-  ProductStatus,
-  ProductType,
-  DiscountType,
-  PromotionChannelRuleInput,
+  ProductListItem, ProductStatus, ProductType, PackItem,
 } from '@/types';
 
-// Memoized Product Row Component to prevent unnecessary re-renders
-interface ProductRowProps {
+const POSCameraScanner = lazy(async () => {
+  const mod = await import('./pos/POSCameraScanner');
+  return { default: mod.POSCameraScanner };
+});
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const fmtPrice = (p: string | number | null | undefined): string => {
+  if (p == null || p === '') return '—';
+  const n = typeof p === 'number' ? p : Number.parseFloat(p);
+  return Number.isNaN(n) ? '—' : `${n.toFixed(2)} TND`;
+};
+
+const fmtDate = (d: string | null | undefined): string => {
+  if (!d) return '—';
+  const dt = new Date(d);
+  return Number.isNaN(dt.getTime())
+    ? '—'
+    : dt.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+};
+
+const fmtDateTime = (d: string | null | undefined): string => {
+  if (!d) return '—';
+  const dt = new Date(d);
+  return Number.isNaN(dt.getTime())
+    ? '—'
+    : dt.toLocaleString('fr-FR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit',
+      });
+};
+
+const STATUS_CONFIG: Record<ProductStatus, { variant: 'default' | 'secondary' | 'outline'; label: string }> = {
+  publish: { variant: 'default', label: 'Published' },
+  draft: { variant: 'secondary', label: 'Draft' },
+  pending: { variant: 'outline', label: 'Pending' },
+  private: { variant: 'outline', label: 'Private' },
+};
+
+const statusBadge = (s: ProductStatus) => {
+  const cfg = STATUS_CONFIG[s] ?? { variant: 'outline' as const, label: s };
+  return <Badge variant={cfg.variant}>{cfg.label}</Badge>;
+};
+
+const HTML_TAG_RE = /<[^>]+>/;
+
+const normalizeErrorText = (value: string): string => {
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+
+  const looksLikeHtml = trimmed.includes('<!DOCTYPE html') || HTML_TAG_RE.test(trimmed);
+  const plain = looksLikeHtml
+    ? trimmed
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&quot;/g, '"')
+        .replace(/&#x27;/g, "'")
+        .replace(/&#39;/g, "'")
+        .replace(/&amp;/g, '&')
+        .replace(/&lt;/g, '<')
+        .replace(/&gt;/g, '>')
+        .replace(/\s+/g, ' ')
+        .trim()
+    : trimmed;
+
+  if (!plain) return '';
+
+  if (looksLikeHtml || plain.length > 320) {
+    return 'Server error while processing barcode. Please retry. If it continues, contact support.';
+  }
+
+  return plain;
+};
+
+const extractErr = (error: unknown): string => {
+  const fallback = 'An error occurred.';
+  if (!error || typeof error !== 'object') return fallback;
+  const e = error as {
+    response?: { data?: Record<string, unknown> | string; status?: number };
+    message?: string;
+  };
+
+  if (e.response?.status && e.response.status >= 500) {
+    return 'Server error while processing barcode. Please retry in a moment.';
+  }
+
+  if (e.response?.data) {
+    const d = e.response.data;
+    if (typeof d === 'string') return normalizeErrorText(d) || fallback;
+    const msgs = Object.entries(d).flatMap(([k, v]) => {
+      const name = k.split('_').map(w => w[0].toUpperCase() + w.slice(1)).join(' ');
+      if (Array.isArray(v)) {
+        return v
+          .map(m => normalizeErrorText(String(m)))
+          .filter(Boolean)
+          .map(m => `${name}: ${m}`);
+      }
+      if (typeof v === 'string') {
+        const safeMsg = normalizeErrorText(v);
+        return safeMsg ? [`${name}: ${safeMsg}`] : [];
+      }
+      return [];
+    });
+    if (msgs.length) return msgs.join('\n');
+    return normalizeErrorText((d.detail as string) ?? (d.message as string) ?? '') || fallback;
+  }
+  return normalizeErrorText(e.message ?? '') || fallback;
+};
+
+// ─── ProductRow (memoized) ────────────────────────────────────────────────────
+
+interface RowProps {
   product: ProductListItem;
   isSelected: boolean;
   selectionMode: boolean;
-  onToggleSelection: (id: number) => void;
-  onView: (product: ProductListItem) => void;
-  onEdit: (product: ProductListItem) => void;
-  onDelete: (product: ProductListItem) => void;
-  getProductStatusBadge: (status: ProductStatus) => React.ReactNode;
-  getInventoryStatusBadge: (status: InventoryStatus) => React.ReactNode;
-  formatPrice: (price: string | number | null | undefined) => string;
+  onSelect: (id: number) => void;
+  onView: (p: ProductListItem) => void;
+  onEdit: (p: ProductListItem) => void;
+  onDelete: (p: ProductListItem) => void;
+  onHardDelete: (p: ProductListItem) => void;
+  onRestore: (p: ProductListItem) => void;
+  onScanBarcode: (p: ProductListItem) => void;
 }
 
 const ProductRow = memo(function ProductRow({
-  product,
-  isSelected,
-  selectionMode,
-  onToggleSelection,
-  onView,
-  onEdit,
-  onDelete,
-  getProductStatusBadge,
-  getInventoryStatusBadge,
-  formatPrice,
-}: ProductRowProps) {
-  const [imgError, setImgError] = useState(false);
+  product: p, isSelected, selectionMode,
+  onSelect, onView, onEdit, onDelete, onHardDelete, onRestore, onScanBarcode,
+}: RowProps) {
+  const [imgErr, setImgErr] = useState(false);
+  const img = getMediaUrl(p.image_url);
+  const showImg = !!img && !imgErr;
 
-  const handleRowClick = useCallback(
-    (e: React.MouseEvent<HTMLTableRowElement>) => {
-      // Check if click is on interactive elements
-      const target = e.target as HTMLElement;
-      const isCheckbox = target.closest('[role="checkbox"]');
-      const isButton = target.closest('button');
-      const isDropdown = target.closest('[role="menu"]');
-
-      // Always ignore clicks on interactive elements
-      if (isCheckbox || isButton || isDropdown) return;
-
-      // Samsung Gallery-style: In selection mode, toggle selection; otherwise, view details
-      if (selectionMode) {
-        onToggleSelection(product.id);
-      } else {
-        onView(product);
-      }
-    },
-    [selectionMode, product, onToggleSelection, onView]
-  );
-
-  const handleCheckboxClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-  }, []);
-
-  const handleCheckboxChange = useCallback(() => {
-    onToggleSelection(product.id);
-  }, [product.id, onToggleSelection]);
-
-  const resolvedImageUrl = getMediaUrl(product.image_url);
-  const showImage = !!resolvedImageUrl && !imgError;
+  const onRowClick = useCallback((e: React.MouseEvent<HTMLTableRowElement>) => {
+    const t = e.target as HTMLElement;
+    if (t.closest('[role="checkbox"]') || t.closest('button') || t.closest('[role="menu"]') || t.closest('[role="menuitem"]')) return;
+    selectionMode ? onSelect(p.id) : onView(p);
+  }, [selectionMode, p, onSelect, onView]);
 
   return (
     <TableRow
-      className={`group cursor-pointer hover:bg-l-bg-2/50 dark:hover:bg-d-bg-2/50 transition-all duration-150 ${isSelected ? 'bg-primary/5 hover:bg-primary/10' : ''}`}
-      onClick={handleRowClick}
+      className={`cursor-pointer transition-colors hover:bg-muted/50
+        ${isSelected ? 'bg-primary/5 hover:bg-primary/10' : ''}
+        ${p.is_deleted ? 'opacity-50' : ''}`}
+      onClick={onRowClick}
     >
-      <TableCell className="w-12" onClick={handleCheckboxClick}>
-        <div className="flex items-center justify-center p-1 -m-1 rounded hover:bg-l-bg-3 dark:hover:bg-d-bg-3 transition-colors">
-          <Checkbox
-            checked={isSelected}
-            onCheckedChange={handleCheckboxChange}
-          />
-        </div>
+      {/* Checkbox */}
+      <TableCell className="w-10 px-3" onClick={e => e.stopPropagation()}>
+        <Checkbox checked={isSelected} onCheckedChange={() => onSelect(p.id)} />
       </TableCell>
+
+      {/* Product name + image */}
       <TableCell>
         <div className="flex items-center gap-3">
-          <div className="size-12 rounded-lg overflow-hidden bg-l-bg-2 dark:bg-d-bg-2 flex items-center justify-center border border-l-border dark:border-d-border flex-shrink-0 group-hover:border-primary/30 transition-colors">
-            {showImage ? (
-              <img
-                src={resolvedImageUrl}
-                alt={product.name}
-                className="size-full object-cover"
-                onError={() => setImgError(true)}
-              />
-            ) : (
-              <Package className="size-5 text-l-text-3 dark:text-d-text-3" />
-            )}
+          <div className="size-10 rounded-lg overflow-hidden bg-muted flex items-center justify-center border flex-shrink-0">
+            {showImg
+              ? <img src={img} alt={p.name} className="size-full object-cover" loading="lazy" onError={() => setImgErr(true)} />
+              : <Package className="size-4 text-muted-foreground" />}
           </div>
           <div className="min-w-0">
-            <p className="font-medium truncate max-w-[200px] group-hover:text-primary transition-colors">
-              {product.name}
-            </p>
-            {product.brand_name && (
-              <p className="text-xs text-l-text-3 dark:text-d-text-3">
-                {product.brand_name}
-              </p>
-            )}
+            <div className="flex items-center gap-1.5">
+              <p className="font-medium truncate max-w-[140px] sm:max-w-[200px] md:max-w-[260px]">{p.name}</p>
+              {p.is_pack && <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 shrink-0">Pack</Badge>}
+            </div>
+            {p.brand_name && <p className="text-xs text-muted-foreground truncate">{p.brand_name}</p>}
           </div>
         </div>
       </TableCell>
 
-      <TableCell>
-        <div className="flex items-center gap-2 text-sm">
-          <Barcode className="size-4 text-l-text-3 dark:text-d-text-3" />
-          <span className="text-l-text-2 dark:text-d-text-2 font-mono">
-            {product.barcode || '-'}
-          </span>
-        </div>
+      {/* Barcode */}
+      <TableCell className="min-w-[150px]">
+        <span className="text-sm font-mono text-muted-foreground">{p.barcode || '—'}</span>
       </TableCell>
 
-      <TableCell>
-        <div className="flex items-center gap-2 text-sm">
-          <Store className="size-4 text-l-text-3 dark:text-d-text-3" />
-          <span className="text-l-text-2 dark:text-d-text-2">
-            {product.sales_channel_name}
-          </span>
-        </div>
+      {/* Type */}
+      <TableCell className="min-w-[110px]">
+        <Badge variant="outline" className="capitalize text-xs">{p.product_type}</Badge>
       </TableCell>
 
-      <TableCell>
-        <div className="flex flex-col">
-          <span className="font-medium">
-            {formatPrice(product.sales_price)}
-          </span>
-          {product.promotion_price && (
-            <span className="text-xs text-green-600">
-              {formatPrice(product.promotion_price)}
-            </span>
-          )}
-        </div>
+      {/* Purchase price */}
+      <TableCell className="text-right min-w-[120px] tabular-nums">{fmtPrice(p.purchase_price)}</TableCell>
+
+      {/* Sales price */}
+      <TableCell className="text-right font-medium min-w-[120px] tabular-nums">{fmtPrice(p.sales_price)}</TableCell>
+
+      {/* Status */}
+      <TableCell className="min-w-[110px]">{statusBadge(p.status)}</TableCell>
+
+      {/* Deleted badge */}
+      <TableCell className="min-w-[100px]">
+        {p.is_deleted && <Badge variant="destructive" className="text-xs">Deleted</Badge>}
       </TableCell>
 
-      <TableCell>
-        <div className="flex flex-col gap-1">
-          {getInventoryStatusBadge(product.inventory_status)}
-          {product.manage_stock && product.stock_quantity !== null && (
-            <span className="text-xs text-l-text-3 dark:text-d-text-3">
-              Qty: {product.stock_quantity}
-            </span>
-          )}
-        </div>
+      {/* Created at */}
+      <TableCell className="text-xs text-muted-foreground whitespace-nowrap min-w-[110px]">
+        {fmtDate(p.created_at)}
       </TableCell>
 
-      <TableCell>{getProductStatusBadge(product.status)}</TableCell>
-
-      <TableCell className="text-right" onClick={handleCheckboxClick}>
+      {/* Actions — ALWAYS VISIBLE */}
+      <TableCell className="text-right pr-3 w-14 sticky right-0 bg-card border-l" onClick={e => e.stopPropagation()}>
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
-              size="icon-sm"
-              className="opacity-0 group-hover:opacity-100 transition-opacity"
+              size="icon"
+              className="size-8 bg-background border border-border/70 shadow-sm hover:bg-accent opacity-100"
             >
               <MoreVertical className="size-4" />
+              <span className="sr-only">Actions</span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+            <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">Actions</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => onView(product)} className="gap-2">
-              <Eye className="size-4" />
-              View Details
+            <DropdownMenuItem onClick={() => onView(p)} className="gap-2">
+              <Eye className="size-4" /> View Details
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => onEdit(product)} className="gap-2">
-              <Pencil className="size-4" />
-              Edit Product
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onClick={() => onDelete(product)}
-              className="gap-2 text-red-600 focus:text-red-600 focus:bg-red-50 dark:focus:bg-red-950"
-            >
-              <Trash2 className="size-4" />
-              Delete
-            </DropdownMenuItem>
+            {!p.is_deleted && (
+              <>
+                <DropdownMenuItem onClick={() => onEdit(p)} className="gap-2">
+                  <Pencil className="size-4" /> Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onScanBarcode(p)} className="gap-2">
+                  <ScanBarcode className="size-4" /> Scan Barcode
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => onDelete(p)} className="gap-2 text-destructive focus:text-destructive">
+                  <Trash2 className="size-4" /> Soft Delete
+                </DropdownMenuItem>
+              </>
+            )}
+            {p.is_deleted && (
+              <>
+                <DropdownMenuItem onClick={() => onRestore(p)} className="gap-2 text-green-600 focus:text-green-600">
+                  <RotateCcw className="size-4" /> Restore
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onHardDelete(p)} className="gap-2 text-destructive focus:text-destructive">
+                  <Trash2 className="size-4" /> Delete Permanently
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </TableCell>
@@ -283,1081 +321,781 @@ const ProductRow = memo(function ProductRow({
   );
 });
 
-interface ProductFormData {
+// ─── Form data ────────────────────────────────────────────────────────────────
+
+interface FormData {
   id?: number;
   name: string;
   barcode: string;
-  description: string;
-  short_description: string;
-  sales_channel: string;
   brand: string;
   product_type: string;
   status: string;
   purchase_price: string;
   sales_price: string;
-  promotion_price: string;
-  inventory_status: string;
-  stock_quantity: string;
-  manage_stock: boolean;
   image_url: string;
-  categories: number[];
+  product_link: string;
+  is_pack: boolean;
+  pack_items: PackItem[];
 }
 
-const getProductDedupeKey = (product: ProductListItem): string => {
-  if (!product.brand) {
-    return `id:${product.id}`;
+const EMPTY_FORM: FormData = {
+  name: '', barcode: '', brand: '', product_type: 'resell', status: 'draft',
+  purchase_price: '0.00', sales_price: '0.00', image_url: '', product_link: '',
+  is_pack: false, pack_items: [],
+};
+
+// ─── ResponsiveSheet (Dialog on desktop / Drawer on mobile) ───────────────────
+
+function ResponsiveSheet({
+  open, onOpenChange, title, description, children, footer, className = '',
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  className?: string;
+}) {
+  const mobile = useIsMobile();
+
+  if (mobile) {
+    return (
+      <Drawer open={open} onOpenChange={onOpenChange}>
+        <DrawerContent className="max-h-[92dvh]">
+          <DrawerHeader className="text-left px-4 pt-4 pb-2">
+            <DrawerTitle>{title}</DrawerTitle>
+            {description && <p className="text-sm text-muted-foreground mt-0.5">{description}</p>}
+          </DrawerHeader>
+          <div className="flex-1 overflow-y-auto px-4 pb-2">{children}</div>
+          {footer && <div className="flex gap-2 p-4 pt-2 border-t">{footer}</div>}
+        </DrawerContent>
+      </Drawer>
+    );
   }
 
-  const wcKey = product.wc_product_id > 0 ? `wc:${product.wc_product_id}` : '';
-  const barcodeKey = product.barcode?.trim().toLowerCase()
-    ? `barcode:${product.barcode.trim().toLowerCase()}`
-    : '';
-  const nameKey = `name:${product.name.trim().toLowerCase()}`;
-
-  return `brand:${product.brand}|${wcKey || barcodeKey || nameKey}`;
-};
-
-const dedupeProductsByBrandIdentity = (
-  items: ProductListItem[]
-): ProductListItem[] => {
-  const map = new Map<string, ProductListItem>();
-
-  items.forEach(item => {
-    const key = getProductDedupeKey(item);
-    const existing = map.get(key);
-
-    if (!existing) {
-      map.set(key, item);
-      return;
-    }
-
-    const existingUpdatedAt = Date.parse(existing.updated_at);
-    const itemUpdatedAt = Date.parse(item.updated_at);
-    if (Number.isNaN(existingUpdatedAt) || Number.isNaN(itemUpdatedAt)) {
-      if (item.id > existing.id) {
-        map.set(key, item);
-      }
-      return;
-    }
-
-    if (itemUpdatedAt >= existingUpdatedAt) {
-      map.set(key, item);
-    }
-  });
-
-  return Array.from(map.values());
-};
-
-const initialFormData: ProductFormData = {
-  name: '',
-  barcode: '',
-  description: '',
-  short_description: '',
-  sales_channel: '',
-  brand: '',
-  product_type: 'simple',
-  status: 'draft',
-  purchase_price: '0.00',
-  sales_price: '0.00',
-  promotion_price: '',
-  inventory_status: 'instock',
-  stock_quantity: '',
-  manage_stock: false,
-  image_url: '',
-  categories: [],
-};
-
-// Discount Type Options for Promotion
-const DISCOUNT_TYPE_OPTIONS: { value: DiscountType; label: string }[] = [
-  { value: 'percentage', label: 'Percentage (%)' },
-  { value: 'fixed', label: 'Fixed Amount (TND)' },
-];
-
-// Channel Rule Builder Component for Promotion
-interface ChannelRuleBuilderProps {
-  readonly channels: SalesChannel[];
-  readonly rules: PromotionChannelRuleInput[];
-  readonly onChange: (rules: PromotionChannelRuleInput[]) => void;
-  readonly discountType: DiscountType;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={`max-h-[85vh] flex flex-col ${className}`}>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          {description && <DialogDescription>{description}</DialogDescription>}
+        </DialogHeader>
+        <div className="flex-1 overflow-y-auto pr-1">{children}</div>
+        {footer && <DialogFooter>{footer}</DialogFooter>}
+      </DialogContent>
+    </Dialog>
+  );
 }
 
-function ChannelRuleBuilder({
-  channels,
-  rules,
-  onChange,
-  discountType,
-}: ChannelRuleBuilderProps) {
-  const handleAddChannel = (channelId: number) => {
-    onChange([
-      ...rules,
-      {
-        sales_channel: channelId,
-        discount_value: 0,
-        is_enabled: true,
-        channel_priority: 0,
-      },
-    ]);
-  };
+// ─── PackBuilder — searchable product picker with images + barcode ────────────
 
-  const handleRemoveChannel = (channelId: number) => {
-    onChange(rules.filter(r => r.sales_channel !== channelId));
-  };
+function PackBuilder({
+  form, setForm, allProducts, onScanRequest,
+}: {
+  form: FormData;
+  setForm: React.Dispatch<React.SetStateAction<FormData>>;
+  allProducts: ProductListItem[];
+  onScanRequest: () => void;
+}) {
+  const [packSearch, setPackSearch] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
 
-  const handleUpdateRule = (
-    channelId: number,
-    field: keyof PromotionChannelRuleInput,
-    value: unknown
-  ) => {
-    onChange(
-      rules.map(r =>
-        r.sales_channel === channelId ? { ...r, [field]: value } : r
-      )
-    );
-  };
+  const usedIds = useMemo(
+    () => new Set(form.pack_items.map(pi => pi.product_id)),
+    [form.pack_items],
+  );
 
-  const ruleMap = useMemo(() => {
-    return new Map(rules.map(r => [r.sales_channel, r]));
-  }, [rules]);
+  const filteredProducts = useMemo(() => {
+    const q = packSearch.toLowerCase().trim();
+    return allProducts.filter(p => {
+      if (p.is_deleted || p.id === form.id || usedIds.has(p.id)) return false;
+      if (!q) return true;
+      return p.name.toLowerCase().includes(q)
+        || (p.barcode && p.barcode.toLowerCase().includes(q))
+        || (p.brand_name && p.brand_name.toLowerCase().includes(q));
+    });
+  }, [allProducts, packSearch, form.id, usedIds]);
+
+  const addProduct = useCallback((p: ProductListItem) => {
+    setForm(f => ({
+      ...f,
+      pack_items: [...f.pack_items, { product_id: p.id, quantity: 1 }],
+    }));
+    setPackSearch('');
+    setPickerOpen(false);
+  }, [setForm]);
+
+  const updateQty = useCallback((pid: number, qty: number) => {
+    setForm(f => ({
+      ...f,
+      pack_items: f.pack_items.map(pi =>
+        pi.product_id === pid ? { ...pi, quantity: Math.max(1, qty) } : pi
+      ),
+    }));
+  }, [setForm]);
+
+  const removeItem = useCallback((pid: number) => {
+    setForm(f => ({ ...f, pack_items: f.pack_items.filter(pi => pi.product_id !== pid) }));
+  }, [setForm]);
 
   return (
-    <div className="space-y-3">
-      <Label className="text-sm font-medium">Sales Channel Discounts</Label>
-      <div className="border border-l-border dark:border-d-border rounded-lg divide-y divide-l-border dark:divide-d-border max-h-[200px] overflow-y-auto">
-        {channels.length === 0 ? (
-          <div className="p-4 text-center text-l-text-2 dark:text-d-text-2">
-            No sales channels available
-          </div>
-        ) : (
-          channels.map(channel => {
-            const rule = ruleMap.get(channel.id);
-            const isEnabled = !!rule;
+    <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Package className="size-4 text-muted-foreground" />
+          <span className="text-sm font-medium">Pack Items</span>
+          {form.pack_items.length > 0 && (
+            <Badge variant="secondary" className="text-xs">{form.pack_items.length}</Badge>
+          )}
+        </div>
+        <div className="flex gap-1.5">
+          <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={onScanRequest}>
+            <ScanBarcode className="size-3" /> Scan
+          </Button>
+          <Button type="button" variant="outline" size="sm" className="h-7 gap-1 text-xs" onClick={() => { setPickerOpen(true); setPackSearch(''); }}>
+            <Plus className="size-3" /> Add
+          </Button>
+        </div>
+      </div>
 
+      {/* Current items */}
+      {form.pack_items.length === 0 ? (
+        <div className="text-center py-6 space-y-2">
+          <Package className="size-8 text-muted-foreground/40 mx-auto" />
+          <p className="text-xs text-muted-foreground">No items yet. Add products or scan barcodes.</p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {form.pack_items.map(item => {
+            const p = allProducts.find(ap => ap.id === item.product_id);
+            const img = p ? getMediaUrl(p.image_url) : null;
             return (
-              <div
-                key={channel.id}
-                className={`p-3 transition-colors ${isEnabled ? 'bg-primary/5' : ''}`}
-              >
-                <div className="flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Checkbox
-                      checked={isEnabled}
-                      onCheckedChange={checked => {
-                        if (checked) {
-                          handleAddChannel(channel.id);
-                        } else {
-                          handleRemoveChannel(channel.id);
-                        }
-                      }}
-                    />
-                    <div className="min-w-0">
-                      <p className="font-medium text-sm truncate">
-                        {channel.name}
-                      </p>
-                    </div>
-                  </div>
-
-                  {isEnabled && (
-                    <div className="flex items-center gap-2">
-                      <div className="relative">
-                        <Input
-                          type="number"
-                          min="0"
-                          max={discountType === 'percentage' ? 100 : undefined}
-                          step="0.01"
-                          value={rule?.discount_value || ''}
-                          onChange={e =>
-                            handleUpdateRule(
-                              channel.id,
-                              'discount_value',
-                              Number.parseFloat(e.target.value) || 0
-                            )
-                          }
-                          className="w-20 pr-6 h-8 text-sm"
-                        />
-                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-l-text-2 dark:text-d-text-2 text-xs">
-                          {discountType === 'percentage' ? '%' : 'TND'}
-                        </span>
-                      </div>
-                    </div>
-                  )}
+              <div key={item.product_id} className="flex items-center gap-2.5 rounded-md border bg-background p-2 transition-colors hover:bg-muted/30">
+                <div className="size-9 rounded-md overflow-hidden bg-muted flex items-center justify-center border flex-shrink-0">
+                  {img ? <img src={img} alt="" className="size-full object-cover" loading="lazy" /> : <Package className="size-3.5 text-muted-foreground" />}
                 </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium truncate">{p?.name ?? `#${item.product_id}`}</p>
+                  {p?.barcode && <p className="text-[11px] text-muted-foreground font-mono truncate">{p.barcode}</p>}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <Button type="button" variant="ghost" size="icon" className="size-6"
+                    onClick={() => updateQty(item.product_id, item.quantity - 1)}
+                    disabled={item.quantity <= 1}>
+                    <span className="text-sm font-bold">−</span>
+                  </Button>
+                  <Input
+                    type="number" min={1} value={item.quantity}
+                    onChange={e => updateQty(item.product_id, parseInt(e.target.value) || 1)}
+                    className="w-12 h-7 text-center text-sm p-0 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                  <Button type="button" variant="ghost" size="icon" className="size-6"
+                    onClick={() => updateQty(item.product_id, item.quantity + 1)}>
+                    <span className="text-sm font-bold">+</span>
+                  </Button>
+                </div>
+                <Button type="button" variant="ghost" size="icon" className="size-7 text-destructive hover:text-destructive shrink-0"
+                  onClick={() => removeItem(item.product_id)}>
+                  <X className="size-3.5" />
+                </Button>
               </div>
             );
-          })
-        )}
-      </div>
+          })}
+        </div>
+      )}
+
+      {/* Product Picker */}
+      {pickerOpen && (
+        <div className="rounded-lg border bg-background shadow-lg">
+          <div className="p-2 border-b">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+              <Input
+                autoFocus
+                placeholder="Search by name, barcode, or brand..."
+                className="pl-8 h-8 text-sm"
+                value={packSearch}
+                onChange={e => setPackSearch(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Escape') setPickerOpen(false); }}
+              />
+            </div>
+          </div>
+          <div className="max-h-[200px] overflow-y-auto">
+            {filteredProducts.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-4">
+                {packSearch ? 'No matching products found' : 'No available products'}
+              </p>
+            ) : (
+              filteredProducts.slice(0, 30).map(p => {
+                const img = getMediaUrl(p.image_url);
+                return (
+                  <button
+                    key={p.id} type="button"
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted/50 transition-colors"
+                    onClick={() => addProduct(p)}
+                  >
+                    <div className="size-8 rounded overflow-hidden bg-muted flex items-center justify-center border flex-shrink-0">
+                      {img ? <img src={img} alt="" className="size-full object-cover" loading="lazy" /> : <Package className="size-3 text-muted-foreground" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium truncate">{p.name}</p>
+                      <p className="text-[11px] text-muted-foreground truncate">
+                        {p.barcode && <span className="font-mono">{p.barcode}</span>}
+                        {p.barcode && p.brand_name && ' · '}
+                        {p.brand_name}
+                        {!p.barcode && !p.brand_name && '—'}
+                      </p>
+                    </div>
+                    <span className="text-xs text-muted-foreground tabular-nums shrink-0">{fmtPrice(p.sales_price)}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+          <div className="p-1.5 border-t">
+            <Button type="button" variant="ghost" size="sm" className="w-full h-7 text-xs" onClick={() => setPickerOpen(false)}>Close</Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
+// ─── Toast notification ───────────────────────────────────────────────────────
+
+function Toast({ toast, onClose }: { toast: { type: 'success' | 'error'; msg: string }; onClose: () => void }) {
+  return (
+    <div className={`fixed top-4 right-4 z-50 flex items-center gap-3 px-4 py-3 rounded-lg shadow-lg border text-sm font-medium animate-in slide-in-from-top-2 duration-300
+      ${toast.type === 'success'
+        ? 'bg-green-50 text-green-800 border-green-200 dark:bg-green-950 dark:text-green-300 dark:border-green-800'
+        : 'bg-red-50 text-red-800 border-red-200 dark:bg-red-950 dark:text-red-300 dark:border-red-800'}`}
+    >
+      {toast.type === 'success' ? <Check className="size-4 shrink-0" /> : <X className="size-4 shrink-0" />}
+      <span className="max-w-xs truncate">{toast.msg}</span>
+      <Button variant="ghost" size="icon" className="size-6 -mr-1 shrink-0" onClick={onClose}><X className="size-3" /></Button>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Main Page
+// ═════════════════════════════════════════════════════════════════════════════
+
 export default function ProductsPage() {
   const { user } = useAuthStore();
+  const isMobile = useIsMobile();
 
-  // Pagination state
-  const [currentPage, setCurrentPage] = useState(1);
+  // ── Pagination & filters ──
+  const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
+  const [search, setSearch] = useState('');
+  const [debSearch, setDebSearch] = useState('');
+  const [brandF, setBrandF] = useState('all');
+  const [statusF, setStatusF] = useState('all');
+  const [typeF, setTypeF] = useState('all');
+  const [packF, setPackF] = useState('all'); // 'all' | 'pack' | 'single'
+  const [showDeleted, setShowDeleted] = useState(false);
+  const [onlyDeleted, setOnlyDeleted] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
-  // Filter state (used for server-side filtering)
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [salesChannelFilter, setSalesChannelFilter] = useState<string>('all');
-  const [brandFilter, setBrandFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [stockFilter, setStockFilter] = useState<string>('all');
-
-  // Debounce search input
+  // Debounce search — 300ms for snappy live filtering
   useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(searchQuery);
-      setCurrentPage(1);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
+    const t = setTimeout(() => { setDebSearch(search); setPage(1); }, 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
   // Reset page when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [salesChannelFilter, brandFilter, statusFilter, stockFilter]);
+  useEffect(() => { setPage(1); }, [brandF, statusF, typeF, packF, showDeleted, onlyDeleted]);
 
-  // Build query params for server-side pagination
-  const queryParams = useMemo(() => ({
-    page: currentPage,
+  // Count active filters (excluding search)
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (brandF !== 'all') count++;
+    if (statusF !== 'all') count++;
+    if (typeF !== 'all') count++;
+    if (packF !== 'all') count++;
+    if (showDeleted) count++;
+    if (onlyDeleted) count++;
+    return count;
+  }, [brandF, statusF, typeF, packF, showDeleted, onlyDeleted]);
+
+  const qp = useMemo(() => ({
+    page,
     page_size: pageSize,
-    search: debouncedSearch || undefined,
-    sales_channel: salesChannelFilter !== 'all' ? Number(salesChannelFilter) : undefined,
-    brand: brandFilter !== 'all' ? Number(brandFilter) : undefined,
-    status: (statusFilter !== 'all' ? statusFilter : undefined) as 'publish' | 'draft' | 'pending' | 'private' | undefined,
-    inventory_status: (stockFilter !== 'all' ? stockFilter : undefined) as 'instock' | 'outofstock' | 'onbackorder' | undefined,
-  }), [currentPage, pageSize, debouncedSearch, salesChannelFilter, brandFilter, statusFilter, stockFilter]);
+    search: debSearch || undefined,
+    brand: brandF !== 'all' ? Number(brandF) : undefined,
+    status: (statusF !== 'all' ? statusF : undefined) as ProductStatus | undefined,
+    product_type: typeF !== 'all' ? typeF : undefined,
+    is_pack: packF === 'pack' ? true : packF === 'single' ? false : undefined,
+    show_deleted: (showDeleted || onlyDeleted) || undefined,
+    only_deleted: onlyDeleted || undefined,
+  }), [page, pageSize, debSearch, brandF, statusF, typeF, packF, showDeleted, onlyDeleted]);
 
-  // React Query - Fetch data with server-side pagination
-  const {
-    data: paginatedData,
-    isLoading,
-    error: fetchError,
-    refetch,
-  } = useProductsPaginated(queryParams);
-
-  const products = useMemo(
-    () => dedupeProductsByBrandIdentity(paginatedData?.results ?? []),
-    [paginatedData?.results]
-  );
-  const totalCount = paginatedData?.count ?? 0;
-  const totalPages = Math.ceil(totalCount / pageSize);
+  // ── Data ──
+  const { data: paginated, isLoading, refetch } = useProductsPaginated(qp);
+  const products = paginated?.results ?? [];
+  const total = paginated?.count ?? 0;
+  const totalPages = Math.ceil(total / pageSize);
 
   const { data: salesChannels = [] } = useSalesChannels();
   const { data: brands = [] } = useBrands();
-  const { data: categories = [] } = useCategories();
 
-  // React Query - Mutations
-  const deleteProductMutation = useDeleteProduct();
-  const bulkDeleteMutation = useBulkDeleteProducts();
-  const createProductMutation = useCreateProduct();
-  const partialUpdateProductMutation = usePartialUpdateProduct();
-  const syncMutation = useSyncProductsFromWooCommerce();
-  const previewMutation = usePreviewProductsFromWooCommerce();
-  const syncSelectedMutation = useSyncSelectedProductsFromWooCommerce();
+  // ── Mutations ──
+  const deleteMut = useDeleteProduct();
+  const hardDeleteMut = useHardDeleteProduct();
+  const bulkDeleteMut = useBulkDeleteProducts();
+  const bulkHardDeleteMut = useBulkHardDeleteProducts();
+  const createMut = useCreateProduct();
+  const updateMut = usePartialUpdateProduct();
+  const restoreMut = useRestoreProduct();
+  const syncMut = useSyncProductsFromWooCommerce();
+  const previewMut = usePreviewProductsFromWooCommerce();
+  const syncSelMut = useSyncSelectedProductsFromWooCommerce();
 
-  // Local UI state (not server state)
+  // ── UI state ──
+  const [selected, setSelected] = useState<ProductListItem | null>(null);
+  const [toDelete, setToDelete] = useState<ProductListItem | null>(null);
+  const [toHardDelete, setToHardDelete] = useState<ProductListItem | null>(null);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [hardDeleteOpen, setHardDeleteOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [form, setForm] = useState<FormData>(EMPTY_FORM);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
 
-  // Dialog states
-  const [selectedProduct, setSelectedProduct] =
-    useState<ProductListItem | null>(null);
-  const [productToDelete, setProductToDelete] =
-    useState<ProductListItem | null>(null);
-  const [viewDialog, setViewDialog] = useState(false);
-  const [deleteDialog, setDeleteDialog] = useState(false);
-  const [addDialog, setAddDialog] = useState(false);
-  const [editDialog, setEditDialog] = useState(false);
-  const [successDialog, setSuccessDialog] = useState(false);
-  const [errorDialog, setErrorDialog] = useState(false);
-  const [successMessage, setSuccessMessage] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
+  // ── Camera barcode scanner states ──
+  const [scanOpen, setScanOpen] = useState(false);
+  const [scanFeedback, setScanFeedback] = useState<string | null>(null);
+  const [scanFeedbackType, setScanFeedbackType] = useState<'success' | 'error' | null>(null);
 
-  // Form state
-  const [formData, setFormData] = useState<ProductFormData>(initialFormData);
-  const [imageUploadFile, setImageUploadFile] = useState<File | null>(null);
-  const [imageUploadPreview, setImageUploadPreview] = useState('');
+  const [bcUpdateOpen, setBcUpdateOpen] = useState(false);
+  const [bcUpdateProduct, setBcUpdateProduct] = useState<ProductListItem | null>(null);
+  const [bcUpdateFeedback, setBcUpdateFeedback] = useState<string | null>(null);
+  const [bcUpdateFeedbackType, setBcUpdateFeedbackType] = useState<'success' | 'error' | null>(null);
 
-  // Bulk selection state
-  const [selectedProducts, setSelectedProducts] = useState<number[]>([]);
-  const [bulkDeleteDialog, setBulkDeleteDialog] = useState(false);
+  const [packScanOpen, setPackScanOpen] = useState(false);
+  const [packScanFeedback, setPackScanFeedback] = useState<string | null>(null);
+  const [packScanFeedbackType, setPackScanFeedbackType] = useState<'success' | 'error' | null>(null);
 
-  // Promotion creation state
-  const [promotionDialog, setPromotionDialog] = useState(false);
-  const [isCreatingPromotion, setIsCreatingPromotion] = useState(false);
-  const [promotionFormData, setPromotionFormData] = useState<{
-    name: string;
-    description: string;
-    discount_type: DiscountType;
-    default_discount_value: string;
-    start_date: string;
-    end_date: string;
-    channel_rules: PromotionChannelRuleInput[];
-  }>({
-    name: '',
-    description: '',
-    discount_type: 'percentage',
-    default_discount_value: '',
-    start_date: '',
-    end_date: '',
-    channel_rules: [],
-  });
+  // ── Hardware barcode buffer ──
+  const barBuf = useRef('');
+  const barTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Selection mode: Samsung Gallery-style (when items are selected, clicking rows toggles selection)
-  const selectionMode = useMemo(
-    () => selectedProducts.length > 0,
-    [selectedProducts.length]
-  );
+  // ── Bulk selection ──
+  const [selIds, setSelIds] = useState<number[]>([]);
+  const [bulkDelOpen, setBulkDelOpen] = useState(false);
+  const selMode = selIds.length > 0;
+  const selSet = useMemo(() => new Set(selIds), [selIds]);
 
-  // Filter categories by brand (categories belong to sales channels which have a brand)
-  const filteredCategories = useMemo(() => {
-    if (!formData.brand || formData.brand === 'none') {
-      return categories;
-    }
-    const brandId = Number(formData.brand);
-    // Get sales channels for this brand as a Set for efficient lookup
-    const brandChannelIds = new Set(
-      salesChannels.filter(ch => ch.brand === brandId).map(ch => ch.id)
-    );
-    // Filter categories to those from brand's sales channels
-    return categories.filter(cat => brandChannelIds.has(cat.sales_channel));
-  }, [categories, salesChannels, formData.brand]);
-
-  // Sync dialog state
-  const [syncDialog, setSyncDialog] = useState(false);
-  const [selectedSyncChannel, setSelectedSyncChannel] = useState<string>('');
-
-  // WooCommerce Preview dialog state
-  const [previewDialog, setPreviewDialog] = useState(false);
-  const [previewData, setPreviewData] = useState<{
-    sales_channel: number;
-    sales_channel_name: string;
-    total_count: number;
-    existing_count: number;
-    new_count: number;
+  // ── Sync ──
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [syncCh, setSyncCh] = useState('');
+  const [prevOpen, setPrevOpen] = useState(false);
+  const [prevData, setPrevData] = useState<{
+    sales_channel: number; sales_channel_name: string;
+    total_count: number; existing_count: number; new_count: number;
     products: Array<{
-      wc_id: number;
-      name: string;
-      sku: string;
-      price: string;
-      sale_price: string;
-      status: string;
-      stock_status: string;
-      stock_quantity: number | null;
-      type: string;
-      image: string;
-      categories: string[];
-      exists_locally: boolean;
+      wc_id: number; name: string; sku: string; price: string;
+      status: string; type: string; image: string; exists_locally: boolean;
     }>;
   } | null>(null);
-  const [selectedWcProducts, setSelectedWcProducts] = useState<number[]>([]);
+  const [selWc, setSelWc] = useState<number[]>([]);
 
-  // Check if user is SuperAdmin
-  const isSuperAdmin = hasRole(user, 'SuperAdmin');
-
-  // Helper function to extract error messages
-  const extractErrorMessage = (error: unknown): string => {
-    const defaultMsg = 'An error occurred. Please try again.';
-
-    if (!error || typeof error !== 'object') {
-      return defaultMsg;
-    }
-
-    const err = error as { response?: { data?: unknown }; message?: string };
-
-    if (err.response?.data) {
-      const data = err.response.data;
-
-      if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
-        const fieldErrors = Object.entries(
-          data as Record<string, unknown>
-        ).flatMap(([field, messages]) => {
-          const fieldName = field
-            .split('_')
-            .map(word => word.charAt(0).toUpperCase() + word.slice(1))
-            .join(' ');
-          if (Array.isArray(messages)) {
-            return messages.map(msg => `${fieldName}: ${msg}`);
-          }
-          return typeof messages === 'string'
-            ? [`${fieldName}: ${messages}`]
-            : [];
-        });
-
-        if (fieldErrors.length > 0) {
-          return 'Validation errors:\n\n' + fieldErrors.join('\n');
-        }
-
-        const dataObj = data as { detail?: string; message?: string };
-        return dataObj.detail ?? dataObj.message ?? defaultMsg;
-      }
-
-      if (typeof data === 'string') return data;
-    }
-
-    if (err.message?.includes('Network Error'))
-      return 'Network error. Please check your connection.';
-    if (err.message?.includes('timeout'))
-      return 'Request timeout. Please try again.';
-
-    return err.message ?? defaultMsg;
-  };
-
-  // Products are now filtered server-side via queryParams
-
-  // Action handlers
-  const handleView = useCallback((product: ProductListItem) => {
-    setSelectedProduct(product);
-    setViewDialog(true);
-  }, []);
-
-  const resetImageUploadState = useCallback((previewUrl: string = '') => {
-    setImageUploadFile(null);
-    setImageUploadPreview(previousPreview => {
-      if (previousPreview.startsWith('blob:')) {
-        URL.revokeObjectURL(previousPreview);
-      }
-      return previewUrl;
-    });
-  }, []);
-
-  const handleAdd = useCallback(() => {
-    setFormData(initialFormData);
-    resetImageUploadState();
-    setAddDialog(true);
-  }, [resetImageUploadState]);
-
-  const handleEdit = useCallback(
-    (product: ProductListItem) => {
-      setFormData({
-        id: product.id,
-        name: product.name,
-        barcode: product.barcode,
-        description: '',
-        short_description: '',
-        sales_channel: String(product.sales_channel),
-        brand: product.brand ? String(product.brand) : '',
-        product_type: product.product_type,
-        status: product.status,
-        purchase_price: product.purchase_price,
-        sales_price: product.sales_price,
-        promotion_price: product.promotion_price || '',
-        inventory_status: product.inventory_status,
-        stock_quantity:
-          product.stock_quantity === null ? '' : String(product.stock_quantity),
-        manage_stock: product.manage_stock,
-        image_url: product.image_url,
-        categories: product.categories || [],
-      });
-      resetImageUploadState(getMediaUrl(product.image_url));
-      setEditDialog(true);
-    },
-    [resetImageUploadState]
+  const needAllProducts = useMemo(
+    () => ((addOpen || editOpen) && form.is_pack) || (viewOpen && !!selected?.is_pack),
+    [addOpen, editOpen, form.is_pack, viewOpen, selected?.is_pack],
   );
+  const { data: allProducts = [] } = useProducts(needAllProducts);
 
-  const handleDelete = useCallback((product: ProductListItem) => {
-    setProductToDelete(product);
-    setDeleteDialog(true);
-  }, []);
+  const isSuperAdmin = hasRole(user, 'SuperAdmin');
+  const wcCh = useMemo(() => salesChannels.filter(c => c.channel_type === 'WOOCOMMERCE'), [salesChannels]);
 
-  const handleFormChange = (
-    field: keyof ProductFormData,
-    value: string | boolean | number[]
-  ) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const handleAddProduct = async () => {
-    if (!formData.name.trim() || !formData.sales_channel) {
-      setErrorMessage(
-        'Please fill in all required fields (Name, Sales Channel).'
-      );
-      setErrorDialog(true);
-      return;
-    }
-
-    try {
-      await createProductMutation.mutateAsync({
-        wc_product_id: 0,
-        sales_channel: Number(formData.sales_channel),
-        name: formData.name.trim(),
-        barcode: formData.barcode,
-        description: formData.description,
-        short_description: formData.short_description,
-        product_type: formData.product_type as ProductType,
-        status: formData.status as ProductStatus,
-        brand:
-          formData.brand && formData.brand !== 'none'
-            ? Number(formData.brand)
-            : undefined,
-        categories: formData.categories,
-        purchase_price: formData.purchase_price,
-        sales_price: formData.sales_price,
-        promotion_price: formData.promotion_price || null,
-        inventory_status: formData.inventory_status as InventoryStatus,
-        stock_quantity: formData.stock_quantity
-          ? Number(formData.stock_quantity)
-          : null,
-        manage_stock: formData.manage_stock,
-        image_url: formData.image_url,
-        image_upload: imageUploadFile,
-      });
-      setSuccessMessage('Product created successfully!');
-      setSuccessDialog(true);
-      setAddDialog(false);
-      setFormData(initialFormData);
-      resetImageUploadState();
-    } catch (err) {
-      console.error('Error creating product:', err);
-      setAddDialog(false);
-      setErrorMessage(extractErrorMessage(err));
-      setErrorDialog(true);
-    }
-  };
-
-  const handleSaveEdit = async () => {
-    if (!formData.id || !formData.name.trim()) {
-      setErrorMessage('Please fill in all required fields.');
-      setErrorDialog(true);
-      return;
-    }
-
-    try {
-      await partialUpdateProductMutation.mutateAsync({
-        id: formData.id,
-        data: {
-          name: formData.name.trim(),
-          barcode: formData.barcode,
-          description: formData.description,
-          short_description: formData.short_description,
-          product_type: formData.product_type as ProductType,
-          status: formData.status as ProductStatus,
-          brand:
-            formData.brand && formData.brand !== 'none'
-              ? Number(formData.brand)
-              : null,
-          categories: formData.categories,
-          purchase_price: formData.purchase_price,
-          sales_price: formData.sales_price,
-          promotion_price: formData.promotion_price || null,
-          inventory_status: formData.inventory_status as InventoryStatus,
-          stock_quantity: formData.stock_quantity
-            ? Number(formData.stock_quantity)
-            : null,
-          manage_stock: formData.manage_stock,
-          image_url: formData.image_url,
-          image_upload: imageUploadFile,
-        },
-      });
-      setSuccessMessage('Product updated successfully!');
-      setSuccessDialog(true);
-      setEditDialog(false);
-      resetImageUploadState();
-    } catch (err) {
-      console.error('Error updating product:', err);
-      setEditDialog(false);
-      setErrorMessage(extractErrorMessage(err));
-      setErrorDialog(true);
-    }
-  };
+  // ── Auto-clear toasts ──
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(t);
+  }, [toast]);
 
   useEffect(() => {
-    return () => {
-      if (imageUploadPreview.startsWith('blob:')) {
-        URL.revokeObjectURL(imageUploadPreview);
-      }
-    };
-  }, [imageUploadPreview]);
+    if (!scanFeedback) return;
+    const t = setTimeout(() => { setScanFeedback(null); setScanFeedbackType(null); }, 3000);
+    return () => clearTimeout(t);
+  }, [scanFeedback]);
 
-  const confirmDelete = async () => {
-    if (!productToDelete) return;
+  useEffect(() => {
+    if (!bcUpdateFeedback) return;
+    const t = setTimeout(() => { setBcUpdateFeedback(null); setBcUpdateFeedbackType(null); }, 3000);
+    return () => clearTimeout(t);
+  }, [bcUpdateFeedback]);
 
-    try {
-      await deleteProductMutation.mutateAsync(productToDelete.id);
-      setSuccessMessage('Product deleted successfully!');
-      setSuccessDialog(true);
-      setDeleteDialog(false);
-    } catch (err) {
-      console.error('Error deleting product:', err);
-      setDeleteDialog(false);
-      setErrorMessage(extractErrorMessage(err));
-      setErrorDialog(true);
+  useEffect(() => {
+    if (!packScanFeedback) return;
+    const t = setTimeout(() => { setPackScanFeedback(null); setPackScanFeedbackType(null); }, 3000);
+    return () => clearTimeout(t);
+  }, [packScanFeedback]);
+
+  // ── Barcode: search product ──
+
+  const handleSearchBarcode = useCallback(async (code: string) => {
+    const local = products.find(p => p.barcode?.toLowerCase() === code.toLowerCase());
+    if (local) {
+      setSelected(local);
+      setViewOpen(true);
+      setScanFeedback(`Found: ${local.name}`);
+      setScanFeedbackType('success');
+      return;
     }
-  };
-
-  // Bulk selection handlers - optimized with useCallback for memoized row components
-  const toggleProductSelection = useCallback((productId: number) => {
-    setSelectedProducts(prev =>
-      prev.includes(productId)
-        ? prev.filter(id => id !== productId)
-        : [...prev, productId]
-    );
-  }, []);
-
-  const selectAllProducts = useCallback(() => {
-    setSelectedProducts(products.map(p => p.id));
+    const api = await productService.searchByBarcode(code);
+    if (api) {
+      setSelected(api);
+      setViewOpen(true);
+      setScanOpen(false);
+      setScanFeedback(`Found: ${api.name}`);
+      setScanFeedbackType('success');
+    } else {
+      setScanFeedback(`Barcode "${code}" not found`);
+      setScanFeedbackType('error');
+    }
   }, [products]);
 
-  const deselectAllProducts = useCallback(() => {
-    setSelectedProducts([]);
+  // ── Barcode: assign to product ──
+
+  const handleBcUpdateDetected = useCallback(async (code: string) => {
+    if (!bcUpdateProduct) return;
+    try {
+      await updateMut.mutateAsync({ id: bcUpdateProduct.id, data: { barcode: code } });
+      setBcUpdateFeedback(`Barcode "${code}" assigned to ${bcUpdateProduct.name}`);
+      setBcUpdateFeedbackType('success');
+      setTimeout(() => setBcUpdateOpen(false), 1200);
+    } catch (err) {
+      setBcUpdateFeedback(extractErr(err));
+      setBcUpdateFeedbackType('error');
+    }
+  }, [bcUpdateProduct, updateMut]);
+
+  // ── Barcode: add pack item by barcode ──
+
+  const handlePackScanBarcode = useCallback((code: string) => {
+    const found = allProducts.find(p => p.barcode?.toLowerCase() === code.toLowerCase() && !p.is_deleted);
+    if (!found) {
+      setPackScanFeedback(`Barcode "${code}" not found`);
+      setPackScanFeedbackType('error');
+      return;
+    }
+    if (found.id === form.id) {
+      setPackScanFeedback('A pack cannot contain itself');
+      setPackScanFeedbackType('error');
+      return;
+    }
+    const existing = form.pack_items.find(pi => pi.product_id === found.id);
+    if (existing) {
+      setForm(f => ({
+        ...f,
+        pack_items: f.pack_items.map(pi =>
+          pi.product_id === found.id ? { ...pi, quantity: pi.quantity + 1 } : pi
+        ),
+      }));
+      setPackScanFeedback(`+1 ${found.name} (qty: ${existing.quantity + 1})`);
+      setPackScanFeedbackType('success');
+    } else {
+      setForm(f => ({
+        ...f,
+        pack_items: [...f.pack_items, { product_id: found.id, quantity: 1 }],
+      }));
+      setPackScanFeedback(`Added: ${found.name}`);
+      setPackScanFeedbackType('success');
+    }
+  }, [allProducts, form.id, form.pack_items]);
+
+  // ── Hardware barcode scanner (keyboard interception) ──
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t.isContentEditable) return;
+      if (e.key === 'Enter' && barBuf.current.length >= 3) {
+        const code = barBuf.current;
+        barBuf.current = '';
+        handleSearchBarcode(code);
+      } else if (e.key.length === 1) {
+        barBuf.current += e.key;
+        if (barTimer.current) clearTimeout(barTimer.current);
+        barTimer.current = setTimeout(() => { barBuf.current = ''; }, 150);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      if (barTimer.current) clearTimeout(barTimer.current);
+    };
+  }, [handleSearchBarcode]);
+
+  // ── CRUD actions ──
+
+  const openView = useCallback((p: ProductListItem) => {
+    setSelected(p);
+    setViewOpen(true);
   }, []);
 
-  // Memoized set of selected product IDs for O(1) lookup
-  const selectedProductsSet = useMemo(
-    () => new Set(selectedProducts),
-    [selectedProducts]
-  );
-
-  const handleBulkDelete = () => {
-    if (selectedProducts.length === 0) return;
-    setBulkDeleteDialog(true);
-  };
-
-  const confirmBulkDelete = async () => {
-    if (selectedProducts.length === 0) return;
-
-    try {
-      const result = await bulkDeleteMutation.mutateAsync(selectedProducts);
-
-      setBulkDeleteDialog(false);
-      setSelectedProducts([]);
-
-      if (result.errorCount > 0) {
-        setSuccessMessage(
-          `Deleted ${result.successCount} products. ${result.errorCount} failed.`
-        );
-      } else {
-        setSuccessMessage(
-          `Successfully deleted ${result.successCount} products!`
-        );
-      }
-      setSuccessDialog(true);
-    } catch (err) {
-      console.error('Error during bulk delete:', err);
-      setBulkDeleteDialog(false);
-      setErrorMessage(extractErrorMessage(err));
-      setErrorDialog(true);
-    }
-  };
-
-  // Promotion creation handlers
-  const handleOpenPromotionDialog = () => {
-    if (selectedProducts.length === 0) return;
-    // Reset form data
-    setPromotionFormData({
-      name: '',
-      description: '',
-      discount_type: 'percentage',
-      default_discount_value: '',
-      start_date: '',
-      end_date: '',
-      channel_rules: [],
+  const openEdit = useCallback((p: ProductListItem) => {
+    setForm({
+      id: p.id, name: p.name, barcode: p.barcode,
+      brand: p.brand ? String(p.brand) : '', product_type: p.product_type,
+      status: p.status, purchase_price: p.purchase_price, sales_price: p.sales_price,
+      image_url: p.image_url, product_link: p.product_link,
+      is_pack: p.is_pack, pack_items: p.pack_items ?? [],
     });
-    setPromotionDialog(true);
-  };
+    setEditOpen(true);
+  }, []);
 
-  const handleCreatePromotions = async () => {
-    if (selectedProducts.length === 0) return;
-    if (promotionFormData.channel_rules.length === 0) {
-      setErrorMessage('Please select at least one sales channel.');
-      setErrorDialog(true);
-      return;
-    }
-    if (!promotionFormData.name.trim()) {
-      setErrorMessage('Please enter a promotion name.');
-      setErrorDialog(true);
-      return;
-    }
+  const openDel = useCallback((p: ProductListItem) => {
+    setToDelete(p);
+    setDeleteOpen(true);
+  }, []);
 
-    setIsCreatingPromotion(true);
+  const openHardDel = useCallback((p: ProductListItem) => {
+    setToHardDelete(p);
+    setHardDeleteOpen(true);
+  }, []);
+
+  const doRestore = useCallback(async (p: ProductListItem) => {
     try {
-      let successCount = 0;
-      let errorCount = 0;
-
-      // Get selected product details
-      const selectedProductDetails = products.filter(p =>
-        selectedProducts.includes(p.id)
-      );
-
-      for (const product of selectedProductDetails) {
-        try {
-          await promotionService.createPromotion({
-            name: `${promotionFormData.name} - ${product.name}`,
-            description: promotionFormData.description || undefined,
-            product: product.id,
-            brand: product.brand || undefined,
-            discount_type: promotionFormData.discount_type,
-            default_discount_value:
-              Number.parseFloat(promotionFormData.default_discount_value) || 0,
-            start_date: promotionFormData.start_date || undefined,
-            end_date: promotionFormData.end_date || undefined,
-            status: 'draft',
-            is_active: false,
-            channel_rules: promotionFormData.channel_rules,
-          });
-          successCount++;
-        } catch (err) {
-          console.error(
-            `Error creating promotion for product ${product.id}:`,
-            err
-          );
-          errorCount++;
-        }
-      }
-
-      setPromotionDialog(false);
-      setSelectedProducts([]);
-
-      if (errorCount > 0) {
-        setSuccessMessage(
-          `Created ${successCount} promotions. ${errorCount} failed.`
-        );
-      } else {
-        setSuccessMessage(`Successfully created ${successCount} promotions!`);
-      }
-      setSuccessDialog(true);
-    } catch (err) {
-      console.error('Error creating promotions:', err);
-      setErrorMessage(extractErrorMessage(err));
-      setErrorDialog(true);
-    } finally {
-      setIsCreatingPromotion(false);
+      await restoreMut.mutateAsync(p.id);
+      setToast({ type: 'success', msg: `"${p.name}" restored` });
+    } catch (e) {
+      setToast({ type: 'error', msg: extractErr(e) });
     }
-  };
+  }, [restoreMut]);
 
-  const handleSync = async () => {
-    // Open sync dialog to let user select a channel
-    setSyncDialog(true);
-  };
+  const openBcScan = useCallback((p: ProductListItem) => {
+    setBcUpdateProduct(p);
+    setBcUpdateFeedback(null);
+    setBcUpdateFeedbackType(null);
+    setBcUpdateOpen(true);
+  }, []);
 
-  const handleConfirmSync = async () => {
-    if (!selectedSyncChannel) {
-      setErrorMessage('Please select a sales channel to sync from.');
-      setErrorDialog(true);
-      return;
-    }
+  const handleAdd = () => { setForm(EMPTY_FORM); setAddOpen(true); };
+  const setF = (k: keyof FormData, v: string) => setForm(f => ({ ...f, [k]: v }));
 
+  const submitCreate = async () => {
+    if (!form.name.trim()) { setToast({ type: 'error', msg: 'Name is required.' }); return; }
+    if (form.is_pack && form.pack_items.length === 0) { setToast({ type: 'error', msg: 'A pack must have at least one item.' }); return; }
     try {
-      await syncMutation.mutateAsync(Number(selectedSyncChannel));
-      setSuccessMessage('Products synchronized successfully from WooCommerce!');
-      setSuccessDialog(true);
-      setSyncDialog(false);
-      setSelectedSyncChannel('');
-    } catch (err) {
-      console.error('Error syncing products:', err);
-      setSyncDialog(false);
-      setErrorMessage(extractErrorMessage(err));
-      setErrorDialog(true);
-    }
-  };
-
-  // Preview products from WooCommerce (without saving)
-  const handlePreviewProducts = async () => {
-    if (!selectedSyncChannel) {
-      setErrorMessage('Please select a sales channel first.');
-      setErrorDialog(true);
-      return;
-    }
-
-    try {
-      const data = await previewMutation.mutateAsync(
-        Number(selectedSyncChannel)
-      );
-      setPreviewData(data);
-      setSelectedWcProducts([]);
-      setSyncDialog(false);
-      setPreviewDialog(true);
-    } catch (err) {
-      console.error('Error fetching WooCommerce products:', err);
-      setErrorMessage(extractErrorMessage(err));
-      setErrorDialog(true);
-    }
-  };
-
-  // Toggle product selection for sync
-  const toggleWcProductSelection = (wcId: number) => {
-    setSelectedWcProducts(prev =>
-      prev.includes(wcId) ? prev.filter(id => id !== wcId) : [...prev, wcId]
-    );
-  };
-
-  // Select all products
-  const selectAllWcProducts = () => {
-    if (previewData) {
-      setSelectedWcProducts(previewData.products.map(p => p.wc_id));
-    }
-  };
-
-  // Deselect all products
-  const deselectAllWcProducts = () => {
-    setSelectedWcProducts([]);
-  };
-
-  // Sync selected products only
-  const handleSyncSelected = async () => {
-    if (!previewData || selectedWcProducts.length === 0) {
-      setErrorMessage('Please select at least one product to sync.');
-      setErrorDialog(true);
-      return;
-    }
-
-    try {
-      const result = await syncSelectedMutation.mutateAsync({
-        salesChannelId: previewData.sales_channel,
-        wcProductIds: selectedWcProducts,
+      await createMut.mutateAsync({
+        name: form.name.trim(), barcode: form.barcode,
+        product_type: form.product_type as ProductType, status: form.status as ProductStatus,
+        brand: form.brand ? Number(form.brand) : undefined,
+        purchase_price: form.purchase_price, sales_price: form.sales_price,
+        image_url: form.image_url, product_link: form.product_link,
+        is_pack: form.is_pack,
+        pack_items: form.is_pack ? form.pack_items : null,
       });
-      setSuccessMessage(
-        `Sync complete! Created: ${result.created || 0}, Updated: ${result.updated || 0}`
-      );
-      setSuccessDialog(true);
-      setPreviewDialog(false);
-      setPreviewData(null);
-      setSelectedWcProducts([]);
-    } catch (err) {
-      console.error('Error syncing selected products:', err);
-      setErrorMessage(extractErrorMessage(err));
-      setErrorDialog(true);
+      setToast({ type: 'success', msg: 'Product created!' });
+      setAddOpen(false);
+    } catch (e) {
+      setToast({ type: 'error', msg: extractErr(e) });
     }
   };
 
-  // Sync all products from preview
-  const handleSyncAllFromPreview = async () => {
-    if (!previewData) return;
+  const submitEdit = async () => {
+    if (!form.id || !form.name.trim()) { setToast({ type: 'error', msg: 'Name is required.' }); return; }
+    if (form.is_pack && form.pack_items.length === 0) { setToast({ type: 'error', msg: 'A pack must have at least one item.' }); return; }
+    try {
+      await updateMut.mutateAsync({
+        id: form.id,
+        data: {
+          name: form.name.trim(), barcode: form.barcode,
+          product_type: form.product_type as ProductType, status: form.status as ProductStatus,
+          brand: form.brand ? Number(form.brand) : null,
+          purchase_price: form.purchase_price, sales_price: form.sales_price,
+          image_url: form.image_url, product_link: form.product_link,
+          is_pack: form.is_pack,
+          pack_items: form.is_pack ? form.pack_items : null,
+        },
+      });
+      setToast({ type: 'success', msg: 'Product updated!' });
+      setEditOpen(false);
+    } catch (e) {
+      setToast({ type: 'error', msg: extractErr(e) });
+    }
+  };
+
+  const confirmDel = async () => {
+    if (!toDelete) return;
+    try {
+      await deleteMut.mutateAsync(toDelete.id);
+      setToast({ type: 'success', msg: `"${toDelete.name}" deleted` });
+    } catch (e) {
+      setToast({ type: 'error', msg: extractErr(e) });
+    }
+    setDeleteOpen(false);
+  };
+
+  const confirmHardDel = async () => {
+    if (!toHardDelete) return;
+    try {
+      await hardDeleteMut.mutateAsync(toHardDelete.id);
+      setToast({ type: 'success', msg: `"${toHardDelete.name}" permanently deleted` });
+      if (selected?.id === toHardDelete.id) {
+        setSelected(null);
+        setViewOpen(false);
+      }
+    } catch (e) {
+      setToast({ type: 'error', msg: extractErr(e) });
+    }
+    setHardDeleteOpen(false);
+  };
+
+  const toggle = useCallback((id: number) =>
+    setSelIds(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id])
+  , []);
+  const selectAll = useCallback(() => setSelIds(products.map(p => p.id)), [products]);
+
+  useEffect(() => {
+    // Keep selection aligned with currently rendered rows after filters/page changes.
+    setSelIds(prev => prev.filter(id => products.some(p => p.id === id)));
+  }, [products]);
+
+  const confirmBulkDel = async () => {
+    if (selIds.length === 0) {
+      setBulkDelOpen(false);
+      return;
+    }
 
     try {
-      await syncMutation.mutateAsync(previewData.sales_channel);
-      setSuccessMessage('All products synchronized successfully!');
-      setSuccessDialog(true);
-      setPreviewDialog(false);
-      setPreviewData(null);
-      setSelectedWcProducts([]);
-    } catch (err) {
-      console.error('Error syncing all products:', err);
-      setErrorMessage(extractErrorMessage(err));
-      setErrorDialog(true);
+      if (onlyDeleted) {
+        const r = await bulkHardDeleteMut.mutateAsync(selIds);
+        setToast({
+          type: r.errorCount > 0 ? 'error' : 'success',
+          msg: `Permanently deleted ${r.successCount}${r.errorCount ? `, ${r.errorCount} failed` : ''}`,
+        });
+      } else {
+        const r = await bulkDeleteMut.mutateAsync(selIds);
+        setToast({ type: 'success', msg: `Deleted ${r.successCount}${r.errorCount ? `, ${r.errorCount} failed` : ''}` });
+      }
+      setSelIds([]);
+      setBulkDelOpen(false);
+    } catch (e) {
+      setToast({ type: 'error', msg: extractErr(e) });
+      setBulkDelOpen(false);
     }
   };
 
-  // Get WooCommerce channels only
-  const wooCommerceChannels = salesChannels.filter(
-    ch => ch.channel_type === 'WOOCOMMERCE'
-  );
-
-  const getInventoryStatusBadge = (status: InventoryStatus) => {
-    switch (status) {
-      case 'instock':
-        return (
-          <Badge variant="default" className="bg-green-600">
-            <CheckCircle2 className="size-3 mr-1" />
-            In Stock
-          </Badge>
-        );
-      case 'outofstock':
-        return (
-          <Badge variant="destructive">
-            <XCircle className="size-3 mr-1" />
-            Out of Stock
-          </Badge>
-        );
-      case 'onbackorder':
-        return (
-          <Badge variant="secondary">
-            <AlertTriangle className="size-3 mr-1" />
-            Backorder
-          </Badge>
-        );
-      default:
-        return <Badge variant="outline">{status}</Badge>;
+  // ── Sync ──
+  const doSync = async () => {
+    if (!syncCh) return;
+    try {
+      await syncMut.mutateAsync(Number(syncCh));
+      setToast({ type: 'success', msg: 'Synced!' });
+      setSyncOpen(false);
+      setSyncCh('');
+    } catch (e) {
+      setToast({ type: 'error', msg: extractErr(e) });
+      setSyncOpen(false);
     }
   };
 
-  const getProductStatusBadge = (status: ProductStatus) => {
-    switch (status) {
-      case 'publish':
-        return <Badge variant="default">Published</Badge>;
-      case 'draft':
-        return <Badge variant="secondary">Draft</Badge>;
-      case 'pending':
-        return <Badge variant="outline">Pending</Badge>;
-      case 'private':
-        return <Badge variant="outline">Private</Badge>;
-      default:
-        return <Badge variant="outline">{status}</Badge>;
+  const doPreview = async () => {
+    if (!syncCh) return;
+    try {
+      const d = await previewMut.mutateAsync(Number(syncCh));
+      setPrevData(d);
+      setSelWc([]);
+      setSyncOpen(false);
+      setPrevOpen(true);
+    } catch (e) {
+      setToast({ type: 'error', msg: extractErr(e) });
     }
   };
 
-  const formatPrice = (price: string | number | null | undefined): string => {
-    if (price === null || price === undefined || price === '') return '-';
-    const num = typeof price === 'number' ? price : Number.parseFloat(price);
-    if (Number.isNaN(num)) return '-';
-    return `${num.toFixed(2)} TND`;
+  const doSyncSel = async () => {
+    if (!prevData || !selWc.length) return;
+    try {
+      const r = await syncSelMut.mutateAsync({ salesChannelId: prevData.sales_channel, wcProductIds: selWc });
+      setToast({ type: 'success', msg: `Created: ${r.created ?? 0}, Updated: ${r.updated ?? 0}` });
+      setPrevOpen(false);
+    } catch (e) {
+      setToast({ type: 'error', msg: extractErr(e) });
+    }
   };
 
-  const renderProductForm = (isEdit = false) => (
-    <div className="space-y-4 pr-2">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2 space-y-2">
-          <Label htmlFor="name">Product Name *</Label>
-          <div className="relative">
-            <Package className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-l-text-3 dark:text-d-text-3" />
-            <Input
-              id="name"
-              value={formData.name}
-              onChange={e => handleFormChange('name', e.target.value)}
-              className="pl-10"
-              placeholder="Enter product name"
-            />
-          </div>
-        </div>
+  const doSyncAllPrev = async () => {
+    if (!prevData) return;
+    try {
+      await syncMut.mutateAsync(prevData.sales_channel);
+      setToast({ type: 'success', msg: 'All synced!' });
+      setPrevOpen(false);
+    } catch (e) {
+      setToast({ type: 'error', msg: extractErr(e) });
+    }
+  };
 
-        <div className="space-y-2">
-          <Label htmlFor="barcode">SKU / Barcode</Label>
-          <div className="relative">
-            <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-l-text-3 dark:text-d-text-3" />
-            <Input
-              id="barcode"
-              value={formData.barcode}
-              onChange={e => handleFormChange('barcode', e.target.value)}
-              className="pl-10"
-              placeholder="SKU-001"
-            />
-          </div>
-        </div>
+  // Reset filters
+  const clearFilters = () => {
+    setBrandF('all');
+    setStatusF('all');
+    setTypeF('all');
+    setPackF('all');
+    setShowDeleted(false);
+    setOnlyDeleted(false);
+  };
 
-        <div className="space-y-2">
-          <Label htmlFor="image_url">Image URL</Label>
-          <Input
-            id="image_url"
-            value={formData.image_url}
-            onChange={e => handleFormChange('image_url', e.target.value)}
-            placeholder="https://..."
-          />
-        </div>
+  // ── Product form (shared between Add/Edit) ──
 
-        <div className="space-y-2 col-span-2">
-          <Label htmlFor="image_upload">Upload Image from PC</Label>
-          <Input
-            id="image_upload"
-            type="file"
-            accept="image/*"
-            onChange={e => {
-              const file = e.target.files?.[0] ?? null;
-              setImageUploadFile(file);
-              setImageUploadPreview(previousPreview => {
-                if (previousPreview.startsWith('blob:')) {
-                  URL.revokeObjectURL(previousPreview);
-                }
-                return file ? URL.createObjectURL(file) : '';
-              });
-            }}
-          />
-          {(imageUploadPreview || formData.image_url) && (
-            <div className="mt-2 flex items-center gap-3">
-              <img
-                src={imageUploadPreview || getMediaUrl(formData.image_url)}
-                alt="Product preview"
-                className="h-16 w-16 rounded-md object-cover border"
-                onError={e => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-              {imageUploadFile && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    setImageUploadFile(null);
-                    setImageUploadPreview(previousPreview => {
-                      if (previousPreview.startsWith('blob:')) {
-                        URL.revokeObjectURL(previousPreview);
-                      }
-                      return formData.image_url
-                        ? (getMediaUrl(formData.image_url) ?? '')
-                        : '';
-                    });
-                  }}
-                >
-                  Remove uploaded file
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
+  const productForm = (
+    <div className="space-y-5 py-2">
+      <div className="space-y-1.5">
+        <Label htmlFor="pf-name">Product Name <span className="text-destructive">*</span></Label>
+        <Input id="pf-name" value={form.name} onChange={e => setF('name', e.target.value)} placeholder="Product name" />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        {!isEdit && (
-          <div className="space-y-2">
-            <Label>Sales Channel *</Label>
-            <Select
-              value={formData.sales_channel}
-              onValueChange={v => handleFormChange('sales_channel', v)}
-            >
-              <SelectTrigger>
-                <Store className="size-4 mr-2" />
-                <SelectValue placeholder="Select channel" />
-              </SelectTrigger>
-              <SelectContent>
-                {salesChannels.map(ch => (
-                  <SelectItem key={ch.id} value={String(ch.id)}>
-                    {ch.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-1.5">
+          <Label>Barcode / SKU</Label>
+          <div className="flex gap-2">
+            <Input value={form.barcode} onChange={e => setF('barcode', e.target.value)} placeholder="Barcode" className="flex-1" />
+            {form.id && (
+              <Button
+                type="button" variant="outline" size="icon" className="shrink-0"
+                title="Scan barcode for this product"
+                onClick={() => {
+                  const p = products.find(pr => pr.id === form.id);
+                  if (p) { setEditOpen(false); openBcScan(p); }
+                }}
+              >
+                <ScanBarcode className="size-4" />
+              </Button>
+            )}
           </div>
-        )}
-
-        <div className="space-y-2">
+        </div>
+        <div className="space-y-1.5">
           <Label>Brand</Label>
-          <Select
-            value={formData.brand}
-            onValueChange={v => handleFormChange('brand', v)}
-          >
-            <SelectTrigger>
-              <Tag className="size-4 mr-2" />
-              <SelectValue placeholder="Select brand" />
-            </SelectTrigger>
+          <Select value={form.brand || 'none'} onValueChange={v => setF('brand', v === 'none' ? '' : v)}>
+            <SelectTrigger><SelectValue placeholder="Select brand" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="none">No Brand</SelectItem>
-              {brands.map(b => (
-                <SelectItem key={b.id} value={String(b.id)}>
-                  {b.name}
-                </SelectItem>
-              ))}
+              {brands.map(b => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
             </SelectContent>
           </Select>
         </div>
-
-        <div className="space-y-2">
-          <Label>Product Type</Label>
-          <Select
-            value={formData.product_type}
-            onValueChange={v => handleFormChange('product_type', v)}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
+        <div className="space-y-1.5">
+          <Label>Type</Label>
+          <Select value={form.product_type} onValueChange={v => setF('product_type', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
-              <SelectItem value="simple">Simple</SelectItem>
-              <SelectItem value="variable">Variable</SelectItem>
-              <SelectItem value="grouped">Grouped</SelectItem>
-              <SelectItem value="external">External</SelectItem>
+              <SelectItem value="resell">Resell</SelectItem>
+              <SelectItem value="packaging">Packaging</SelectItem>
             </SelectContent>
           </Select>
         </div>
-
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           <Label>Status</Label>
-          <Select
-            value={formData.status}
-            onValueChange={v => handleFormChange('status', v)}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
+          <Select value={form.status} onValueChange={v => setF('status', v)}>
+            <SelectTrigger><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectItem value="publish">Published</SelectItem>
               <SelectItem value="draft">Draft</SelectItem>
@@ -1366,1532 +1104,610 @@ export default function ProductsPage() {
             </SelectContent>
           </Select>
         </div>
-      </div>
-
-      <div className="border-t pt-4">
-        <Label className="text-l-text-3 dark:text-d-text-3 mb-3 block">
-          Pricing
-        </Label>
-        <div className="grid grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="purchase_price">Purchase Price</Label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium text-l-text-3 dark:text-d-text-3">
-                TND
-              </span>
-              <Input
-                id="purchase_price"
-                type="number"
-                step="0.01"
-                value={formData.purchase_price}
-                onChange={e =>
-                  handleFormChange('purchase_price', e.target.value)
-                }
-                className="pl-12"
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="sales_price">Sales Price</Label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium text-l-text-3 dark:text-d-text-3">
-                TND
-              </span>
-              <Input
-                id="sales_price"
-                type="number"
-                step="0.01"
-                value={formData.sales_price}
-                onChange={e => handleFormChange('sales_price', e.target.value)}
-                className="pl-12"
-              />
-            </div>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="promotion_price">Promotion Price</Label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-medium text-l-text-3 dark:text-d-text-3">
-                TND
-              </span>
-              <Input
-                id="promotion_price"
-                type="number"
-                step="0.01"
-                value={formData.promotion_price}
-                onChange={e =>
-                  handleFormChange('promotion_price', e.target.value)
-                }
-                className="pl-12"
-                placeholder="Optional"
-              />
-            </div>
-          </div>
+        <div className="space-y-1.5">
+          <Label>Purchase Price</Label>
+          <Input type="number" step="0.01" min="0" value={form.purchase_price} onChange={e => setF('purchase_price', e.target.value)} />
+        </div>
+        <div className="space-y-1.5">
+          <Label>Sales Price</Label>
+          <Input type="number" step="0.01" min="0" value={form.sales_price} onChange={e => setF('sales_price', e.target.value)} />
         </div>
       </div>
 
-      <div className="border-t pt-4">
-        <Label className="text-l-text-3 dark:text-d-text-3 mb-3 block">
-          Inventory
-        </Label>
-        <div className="grid grid-cols-3 gap-4">
-          <div className="space-y-2">
-            <Label>Stock Status</Label>
-            <Select
-              value={formData.inventory_status}
-              onValueChange={v => handleFormChange('inventory_status', v)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="instock">In Stock</SelectItem>
-                <SelectItem value="outofstock">Out of Stock</SelectItem>
-                <SelectItem value="onbackorder">On Backorder</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="stock_quantity">Stock Quantity</Label>
-            <Input
-              id="stock_quantity"
-              type="number"
-              value={formData.stock_quantity}
-              onChange={e => handleFormChange('stock_quantity', e.target.value)}
-              placeholder="0"
-            />
-          </div>
-          <div className="space-y-2 flex items-end">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={formData.manage_stock}
-                onChange={e =>
-                  handleFormChange('manage_stock', e.target.checked)
-                }
-                className="rounded"
-              />
-              <span className="text-sm">Manage Stock</span>
-            </label>
-          </div>
-        </div>
-      </div>
+      <Separator />
 
-      <div className="border-t pt-4 space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="short_description">Short Description</Label>
-          <Textarea
-            id="short_description"
-            value={formData.short_description}
-            onChange={e =>
-              handleFormChange('short_description', e.target.value)
-            }
-            placeholder="Brief product description..."
-            rows={2}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="description">Full Description</Label>
-          <Textarea
-            id="description"
-            value={formData.description}
-            onChange={e => handleFormChange('description', e.target.value)}
-            placeholder="Detailed product description..."
-            rows={3}
-          />
-        </div>
-      </div>
-
-      {/* Categories Section - filtered by brand */}
-      <div className="border-t pt-4 space-y-3">
-        <div className="flex items-center justify-between">
-          <Label className="text-l-text-3 dark:text-d-text-3 flex items-center gap-2">
-            <FolderTree className="size-4" />
-            Categories
-            {formData.brand && formData.brand !== 'none' && (
-              <span className="text-xs font-normal text-l-text-3 dark:text-d-text-3">
-                (filtered by selected brand)
-              </span>
-            )}
-          </Label>
-          {formData.categories.length > 0 && (
-            <Badge variant="secondary">
-              {formData.categories.length} selected
-            </Badge>
-          )}
-        </div>
-        {filteredCategories.length > 0 ? (
-          <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto border rounded-md p-3">
-            {filteredCategories.map(cat => (
-              <label
-                key={cat.id}
-                className="flex items-center gap-2 cursor-pointer hover:bg-l-bg-2 dark:hover:bg-d-bg-2 p-1.5 rounded"
-              >
-                <input
-                  type="checkbox"
-                  checked={formData.categories.includes(cat.id)}
-                  onChange={e => {
-                    if (e.target.checked) {
-                      handleFormChange('categories', [
-                        ...formData.categories,
-                        cat.id,
-                      ]);
-                    } else {
-                      handleFormChange(
-                        'categories',
-                        formData.categories.filter(id => id !== cat.id)
-                      );
-                    }
-                  }}
-                  className="rounded"
-                />
-                <span className="text-sm truncate" title={cat.name}>
-                  {cat.name}
-                </span>
-                <span className="text-xs text-l-text-3 dark:text-d-text-3 ml-auto">
-                  ({cat.products_count})
-                </span>
-              </label>
-            ))}
+      <div className="space-y-1.5">
+        <Label>Image URL</Label>
+        <Input value={form.image_url} onChange={e => setF('image_url', e.target.value)} placeholder="https://..." />
+        {form.image_url && (
+          <div className="mt-2 flex justify-center">
+            <img src={getMediaUrl(form.image_url)} alt="Preview" className="max-h-24 rounded-lg object-contain border" loading="lazy" />
           </div>
-        ) : (
-          <p className="text-sm text-l-text-3 dark:text-d-text-3 italic">
-            {formData.brand && formData.brand !== 'none'
-              ? 'No categories found for the selected brand. Sync categories from WooCommerce.'
-              : 'Select a brand to see available categories.'}
-          </p>
         )}
       </div>
+      <div className="space-y-1.5">
+        <Label>Product Link</Label>
+        <Input value={form.product_link} onChange={e => setF('product_link', e.target.value)} placeholder="https://..." />
+      </div>
+
+      <Separator />
+
+      {/* Pack/Bundle Toggle */}
+      <div className="flex items-center justify-between">
+        <div>
+          <Label htmlFor="pf-ispack" className="text-sm font-medium">Product Pack / Bundle</Label>
+          <p className="text-xs text-muted-foreground mt-0.5">Combine multiple products into one pack</p>
+        </div>
+        <Switch
+          id="pf-ispack"
+          checked={form.is_pack}
+          onCheckedChange={v => setForm(f => ({ ...f, is_pack: v, pack_items: v ? f.pack_items : [] }))}
+        />
+      </div>
+
+      {form.is_pack && (
+        <PackBuilder form={form} setForm={setForm} allProducts={allProducts} onScanRequest={() => setPackScanOpen(true)} />
+      )}
     </div>
   );
 
-  if (isLoading) {
-    return (
-      <div className="flex flex-1 items-center justify-center p-4">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-l-text-2 dark:text-d-text-2">
-            Loading products...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  if (fetchError) {
-    return (
-      <div className="flex flex-1 items-center justify-center p-4">
-        <Card className="p-8 max-w-md text-center">
-          <p className="text-red-500">
-            {fetchError instanceof Error
-              ? fetchError.message
-              : 'Failed to load products'}
-          </p>
-          <Button onClick={() => refetch()} className="mt-4">
-            Retry
-          </Button>
-        </Card>
-      </div>
-    );
-  }
+  // ═════════════════════════════════════════════════════════════════════════════
+  // RENDER
+  // ═════════════════════════════════════════════════════════════════════════════
 
   return (
-    <div className="flex flex-1 flex-col gap-6 p-4 lg:p-6">
-      <div className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">
-              Products Manager
-            </h1>
-            <p className="text-l-text-2 dark:text-d-text-2 mt-2">
-              Manage products synced from WooCommerce
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Button onClick={handleAdd} className="gap-2">
-              <Plus className="size-4" />
-              Add Product
-            </Button>
-            <Button onClick={handleSync} variant="outline" className="gap-2">
-              <RefreshCw className="size-4" />
-              Sync with WooCommerce
-            </Button>
-          </div>
+    <div className="space-y-4 sm:space-y-5 p-3 sm:p-6">
+      {/* Toast */}
+      {toast && <Toast toast={toast} onClose={() => setToast(null)} />}
+
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold flex items-center gap-2">
+            <Package className="size-5 sm:size-6" /> Products
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            {total} product{total !== 1 ? 's' : ''}
+            {debSearch && <span className="ml-1">matching "{debSearch}"</span>}
+          </p>
         </div>
+        <div className="flex flex-wrap gap-2">
+          <Button size="sm" onClick={handleAdd} className="gap-1.5">
+            <Plus className="size-4" /> Add
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => { setScanFeedback(null); setScanOpen(true); }} className="gap-1.5">
+            <ScanBarcode className="size-4" />{!isMobile && ' Scan'}
+          </Button>
+          <Button
+            variant={onlyDeleted ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => {
+              setOnlyDeleted(v => !v);
+              setShowDeleted(false);
+            }}
+            className="gap-1.5"
+          >
+            <Trash2 className="size-4" />{!isMobile && ' Deleted'}
+          </Button>
+          {isSuperAdmin && wcCh.length > 0 && (
+            <Button variant="outline" size="sm" onClick={() => setSyncOpen(true)} className="gap-1.5">
+              <Globe className="size-4" />{!isMobile && ' Sync'}
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isLoading} className="gap-1.5">
+            <RefreshCw className={`size-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
+      </div>
 
-        <Card className="p-4">
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col md:flex-row gap-4">
-              <div className="flex-1 relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-l-text-3 dark:text-d-text-3" />
-                <Input
-                  placeholder="Search by name, barcode, or channel..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
+      {/* Search + Filter toggle */}
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground pointer-events-none" />
+          <Input
+            placeholder="Search products by name or barcode..."
+            className="pl-9 h-9"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          {search && (
+            <Button
+              variant="ghost" size="icon"
+              className="absolute right-1 top-1/2 -translate-y-1/2 size-7"
+              onClick={() => setSearch('')}
+            >
+              <X className="size-3.5" />
+            </Button>
+          )}
+        </div>
+        <Button
+          variant={activeFilterCount > 0 ? 'default' : 'outline'}
+          size="sm"
+          className="h-9 gap-1.5 shrink-0"
+          onClick={() => setFiltersOpen(!filtersOpen)}
+        >
+          <Filter className="size-4" />
+          Filters
+          {activeFilterCount > 0 && (
+            <Badge variant="secondary" className="size-5 p-0 flex items-center justify-center text-[10px] rounded-full">
+              {activeFilterCount}
+            </Badge>
+          )}
+        </Button>
+      </div>
 
-              {isSuperAdmin && salesChannels.length > 0 && (
-                <Select
-                  value={salesChannelFilter}
-                  onValueChange={setSalesChannelFilter}
-                >
-                  <SelectTrigger className="w-full md:w-[200px]">
-                    <Store className="size-4 mr-2" />
-                    <SelectValue placeholder="Sales Channel" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Channels</SelectItem>
-                    {salesChannels.map(channel => (
-                      <SelectItem key={channel.id} value={String(channel.id)}>
-                        {channel.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-
-              {isSuperAdmin && brands.length > 0 && (
-                <Select value={brandFilter} onValueChange={setBrandFilter}>
-                  <SelectTrigger className="w-full md:w-[180px]">
-                    <Tag className="size-4 mr-2" />
-                    <SelectValue placeholder="Brand" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Brands</SelectItem>
-                    {brands.map(brand => (
-                      <SelectItem key={brand.id} value={String(brand.id)}>
-                        {brand.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            </div>
-
-            <div className="flex flex-col md:flex-row gap-4">
-              <Select value={statusFilter} onValueChange={setStatusFilter}>
-                <SelectTrigger className="w-full md:w-[160px]">
-                  <Filter className="size-4 mr-2" />
-                  <SelectValue placeholder="Status" />
-                </SelectTrigger>
+      {/* Filter panel (expandable) */}
+      {filtersOpen && (
+        <Card className="p-3 sm:p-4 animate-in slide-in-from-top-1 duration-200">
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="space-y-1 min-w-[130px]">
+              <Label className="text-xs text-muted-foreground">Brand</Label>
+              <Select value={brandF} onValueChange={setBrandF}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="all">All Brands</SelectItem>
+                  {brands.map(b => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1 min-w-[120px]">
+              <Label className="text-xs text-muted-foreground">Status</Label>
+              <Select value={statusF} onValueChange={setStatusF}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
                   <SelectItem value="publish">Published</SelectItem>
                   <SelectItem value="draft">Draft</SelectItem>
                   <SelectItem value="pending">Pending</SelectItem>
                   <SelectItem value="private">Private</SelectItem>
                 </SelectContent>
               </Select>
-
-              <Select value={stockFilter} onValueChange={setStockFilter}>
-                <SelectTrigger className="w-full md:w-[180px]">
-                  <Layers className="size-4 mr-2" />
-                  <SelectValue placeholder="Stock Status" />
-                </SelectTrigger>
+            </div>
+            <div className="space-y-1 min-w-[110px]">
+              <Label className="text-xs text-muted-foreground">Type</Label>
+              <Select value={typeF} onValueChange={setTypeF}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Stock Status</SelectItem>
-                  <SelectItem value="instock">In Stock</SelectItem>
-                  <SelectItem value="outofstock">Out of Stock</SelectItem>
-                  <SelectItem value="onbackorder">On Backorder</SelectItem>
+                  <SelectItem value="all">All Types</SelectItem>
+                  <SelectItem value="resell">Resell</SelectItem>
+                  <SelectItem value="packaging">Packaging</SelectItem>
                 </SelectContent>
               </Select>
-
-              <div className="flex-1" />
-
-              <div className="flex items-center gap-2 text-sm text-l-text-2 dark:text-d-text-2">
-                <span>
-                  Showing {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalCount)} of {totalCount}{' '}
-                  products
-                </span>
-              </div>
             </div>
+            <div className="space-y-1 min-w-[110px]">
+              <Label className="text-xs text-muted-foreground">Pack</Label>
+              <Select value={packF} onValueChange={setPackF}>
+                <SelectTrigger className="h-8 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All</SelectItem>
+                  <SelectItem value="pack">Packs Only</SelectItem>
+                  <SelectItem value="single">Singles Only</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="flex items-center gap-2 pb-0.5">
+              <Switch
+                checked={showDeleted}
+                onCheckedChange={v => {
+                  setShowDeleted(v);
+                  if (v) setOnlyDeleted(false);
+                }}
+                id="show-del"
+                className="scale-90"
+              />
+              <Label htmlFor="show-del" className="text-xs cursor-pointer whitespace-nowrap">Show Deleted</Label>
+            </div>
+            {activeFilterCount > 0 && (
+              <Button variant="ghost" size="sm" className="h-8 text-xs gap-1 text-muted-foreground" onClick={clearFilters}>
+                <X className="size-3" /> Clear all
+              </Button>
+            )}
           </div>
         </Card>
+      )}
 
-        {/* Bulk Action Bar - Animated slide in */}
-        <div
-          className={`overflow-hidden transition-all duration-200 ease-out ${selectedProducts.length > 0 ? 'max-h-20 opacity-100' : 'max-h-0 opacity-0'}`}
-        >
-          <Card className="p-3 bg-gradient-to-r from-primary/5 to-primary/10 border-primary/20 shadow-sm">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="flex items-center justify-center size-8 rounded-full bg-primary/10">
-                  <span className="text-sm font-bold text-primary">
-                    {selectedProducts.length}
-                  </span>
-                </div>
-                <span className="font-medium text-sm">
-                  product{selectedProducts.length > 1 ? 's' : ''} selected
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={deselectAllProducts}
-                  className="text-l-text-2 dark:text-d-text-2 hover:text-l-text-1 dark:hover:text-d-text-1"
-                >
-                  Clear selection
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={handleOpenPromotionDialog}
-                  className="gap-2 shadow-sm border-primary/30 text-primary hover:bg-primary/10"
-                >
-                  <Percent className="size-4" />
-                  Create Promotion
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={handleBulkDelete}
-                  className="gap-2 shadow-sm"
-                >
-                  <Trash2 className="size-4" />
-                  Delete ({selectedProducts.length})
-                </Button>
-              </div>
-            </div>
-          </Card>
+      {/* Bulk selection bar */}
+      {selMode && (
+        <div className="flex items-center gap-2 sm:gap-3 p-2.5 bg-muted/50 rounded-lg border text-sm">
+          <span className="font-medium">{selIds.length} selected</span>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={selectAll}>All</Button>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setSelIds([])}>Clear</Button>
+          <Button size="sm" variant="destructive" className="h-7 text-xs gap-1 ml-auto" onClick={() => setBulkDelOpen(true)}>
+            <Trash2 className="size-3" /> {onlyDeleted ? 'Delete Permanently' : 'Delete'}
+          </Button>
         </div>
-      </div>
+      )}
 
+      {/* Table */}
       <Card className="overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-l-bg-2/50 dark:bg-d-bg-2/50">
-              <TableHead className="w-12">
-                <div className="flex items-center justify-center">
-                  <Checkbox
-                    checked={
-                      selectedProducts.length === products.length &&
-                      products.length > 0
-                    }
-                    onCheckedChange={checked => {
-                      if (checked) selectAllProducts();
-                      else deselectAllProducts();
-                    }}
-                  />
-                </div>
-              </TableHead>
-              <TableHead className="font-semibold">Product</TableHead>
-              <TableHead className="font-semibold">SKU</TableHead>
-              <TableHead className="font-semibold">Channel</TableHead>
-              <TableHead className="font-semibold">Price</TableHead>
-              <TableHead className="font-semibold">Stock</TableHead>
-              <TableHead className="font-semibold">Status</TableHead>
-              <TableHead className="text-right font-semibold">
-                Actions
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {products.length === 0 ? (
+        <div className="overflow-x-auto">
+          <Table className="min-w-[1080px]">
+            <TableHeader>
               <TableRow>
-                <TableCell
-                  colSpan={8}
-                  className="text-center py-12 text-l-text-2 dark:text-d-text-2"
-                >
-                  <div className="flex flex-col items-center gap-3">
-                    <Package className="size-10 text-l-text-3 dark:text-d-text-3" />
-                    <p>No products found</p>
-                  </div>
-                </TableCell>
+                <TableHead className="w-10 px-3">
+                  <Checkbox
+                    checked={products.length > 0 && selIds.length === products.length}
+                    onCheckedChange={c => c ? selectAll() : setSelIds([])}
+                  />
+                </TableHead>
+                <TableHead className="min-w-[180px]">Product</TableHead>
+                <TableHead className="min-w-[150px]">Barcode</TableHead>
+                <TableHead className="min-w-[110px]">Type</TableHead>
+                <TableHead className="text-right min-w-[120px]">Purchase</TableHead>
+                <TableHead className="text-right min-w-[120px]">Sales</TableHead>
+                <TableHead className="min-w-[110px]">Status</TableHead>
+                <TableHead className="min-w-[100px] w-20" />
+                <TableHead className="min-w-[110px]">Created</TableHead>
+                <TableHead className="text-right w-14 sticky right-0 bg-card border-l z-10">
+                  <span className="sr-only">Actions</span>
+                </TableHead>
               </TableRow>
-            ) : (
-              products.map(product => (
+            </TableHeader>
+            <TableBody>
+              {isLoading && (
+                <TableRow>
+                  <TableCell colSpan={10} className="text-center py-16 text-muted-foreground">
+                    <Loader2 className="size-6 animate-spin inline-block mr-2" /> Loading products...
+                  </TableCell>
+                </TableRow>
+              )}
+              {!isLoading && products.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={10} className="text-center py-16">
+                    <Package className="size-10 text-muted-foreground/30 mx-auto mb-3" />
+                    <p className="text-muted-foreground font-medium">No products found</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {debSearch || activeFilterCount > 0
+                        ? 'Try adjusting your search or filters'
+                        : 'Create your first product to get started'}
+                    </p>
+                  </TableCell>
+                </TableRow>
+              )}
+              {!isLoading && products.map(p => (
                 <ProductRow
-                  key={product.id}
-                  product={product}
-                  isSelected={selectedProductsSet.has(product.id)}
-                  selectionMode={selectionMode}
-                  onToggleSelection={toggleProductSelection}
-                  onView={handleView}
-                  onEdit={handleEdit}
-                  onDelete={handleDelete}
-                  getProductStatusBadge={getProductStatusBadge}
-                  getInventoryStatusBadge={getInventoryStatusBadge}
-                  formatPrice={formatPrice}
+                  key={p.id} product={p}
+                  isSelected={selSet.has(p.id)} selectionMode={selMode}
+                  onSelect={toggle} onView={openView} onEdit={openEdit}
+                  onDelete={openDel} onHardDelete={openHardDel} onRestore={doRestore} onScanBarcode={openBcScan}
                 />
-              ))
-            )}
-          </TableBody>
-        </Table>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       </Card>
 
-      {/* Pagination Controls */}
+      {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-l-text-2 dark:text-d-text-2">
-            Page {currentPage} of {totalPages}
+        <div className="flex items-center justify-between text-sm">
+          <p className="text-muted-foreground text-xs sm:text-sm">
+            Page {page} of {totalPages} · {total} total
           </p>
-          <div className="flex items-center gap-1">
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => setCurrentPage(1)}
-              disabled={currentPage === 1}
-            >
+          <div className="flex gap-1">
+            <Button variant="outline" size="icon" className="size-8" onClick={() => setPage(1)} disabled={page === 1}>
               <ChevronsLeft className="size-4" />
             </Button>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-              disabled={currentPage === 1}
-            >
+            <Button variant="outline" size="icon" className="size-8" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}>
               <ChevronLeft className="size-4" />
             </Button>
-
-            {/* Page number buttons */}
-            {Array.from({ length: totalPages }, (_, i) => i + 1)
-              .filter(page => {
-                if (totalPages <= 7) return true;
-                if (page === 1 || page === totalPages) return true;
-                if (Math.abs(page - currentPage) <= 1) return true;
-                return false;
-              })
-              .reduce<(number | 'ellipsis')[]>((acc, page, idx, arr) => {
-                if (idx > 0 && page - (arr[idx - 1] as number) > 1) {
-                  acc.push('ellipsis');
-                }
-                acc.push(page);
-                return acc;
-              }, [])
-              .map((item, idx) =>
-                item === 'ellipsis' ? (
-                  <span key={`ellipsis-${idx}`} className="px-2 text-l-text-3 dark:text-d-text-3">
-                    ...
-                  </span>
-                ) : (
-                  <Button
-                    key={item}
-                    variant={currentPage === item ? 'default' : 'outline'}
-                    size="icon-sm"
-                    onClick={() => setCurrentPage(item)}
-                  >
-                    {item}
-                  </Button>
-                )
-              )}
-
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-              disabled={currentPage === totalPages}
-            >
+            <span className="flex items-center px-3 text-sm font-medium tabular-nums">{page}</span>
+            <Button variant="outline" size="icon" className="size-8" onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
               <ChevronRight className="size-4" />
             </Button>
-            <Button
-              variant="outline"
-              size="icon-sm"
-              onClick={() => setCurrentPage(totalPages)}
-              disabled={currentPage === totalPages}
-            >
+            <Button variant="outline" size="icon" className="size-8" onClick={() => setPage(totalPages)} disabled={page === totalPages}>
               <ChevronsRight className="size-4" />
             </Button>
           </div>
         </div>
       )}
 
-      {/* View Product Dialog */}
-      <Dialog open={viewDialog} onOpenChange={setViewDialog}>
-        <DialogContent className="w-[70vw] h-[70vh] max-w-none flex flex-col">
-          <DialogHeader className="pb-4 border-b">
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="size-5 text-primary" />
-              Product Details
-            </DialogTitle>
-            <DialogDescription>
-              View complete product information
-            </DialogDescription>
-          </DialogHeader>
+      {/* ═══════════ DIALOGS ═══════════ */}
 
-          {selectedProduct && (
-            <div className="flex-1 overflow-y-auto space-y-6 py-4 pr-2">
-              {/* Hero Section */}
-              <div className="flex gap-6 p-4 bg-gradient-to-r from-l-bg-2 to-transparent dark:from-d-bg-2 dark:to-transparent rounded-xl">
-                <div className="size-28 rounded-xl overflow-hidden bg-white dark:bg-d-bg-3 flex items-center justify-center border-2 border-l-border dark:border-d-border flex-shrink-0 shadow-sm">
-                  {selectedProduct.image_url ? (
-                    <img
-                      src={getMediaUrl(selectedProduct.image_url)}
-                      alt={selectedProduct.name}
-                      className="size-full object-cover"
-                      onError={e => {
-                        (e.currentTarget as HTMLElement).style.display = 'none';
-                        (e.currentTarget.parentElement?.querySelector('.fallback-icon') as HTMLElement | null)?.classList.remove('hidden');
-                      }}
-                    />
-                  ) : null}
-                  <Package className={`fallback-icon size-10 text-l-text-3 dark:text-d-text-3 ${selectedProduct.image_url ? 'hidden' : ''}`} />
-                </div>
-                <div className="flex-1 space-y-3">
-                  <h3 className="text-xl font-bold leading-tight">
-                    {selectedProduct.name}
-                  </h3>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {getProductStatusBadge(selectedProduct.status)}
-                    {getInventoryStatusBadge(selectedProduct.inventory_status)}
-                    <Badge variant="outline" className="gap-1">
-                      <Store className="size-3" />
-                      {selectedProduct.sales_channel_name}
-                    </Badge>
-                  </div>
-                  {selectedProduct.brand_name && (
-                    <div className="flex items-center gap-2 text-sm text-l-text-2 dark:text-d-text-2">
-                      <Tag className="size-4" />
-                      <span>{selectedProduct.brand_name}</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Info Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <div className="p-3 rounded-lg bg-l-bg-2/50 dark:bg-d-bg-2/50 space-y-1">
-                  <p className="text-xs text-l-text-3 dark:text-d-text-3 uppercase tracking-wide">
-                    WC ID
-                  </p>
-                  <p className="font-semibold text-primary">
-                    #{selectedProduct.wc_product_id}
-                  </p>
-                </div>
-                <div className="p-3 rounded-lg bg-l-bg-2/50 dark:bg-d-bg-2/50 space-y-1">
-                  <p className="text-xs text-l-text-3 dark:text-d-text-3 uppercase tracking-wide">
-                    SKU
-                  </p>
-                  <p className="font-mono font-medium truncate">
-                    {selectedProduct.barcode || '-'}
-                  </p>
-                </div>
-                <div className="p-3 rounded-lg bg-l-bg-2/50 dark:bg-d-bg-2/50 space-y-1">
-                  <p className="text-xs text-l-text-3 dark:text-d-text-3 uppercase tracking-wide">
-                    Type
-                  </p>
-                  <p className="font-medium capitalize">
-                    {selectedProduct.product_type}
-                  </p>
-                </div>
-                <div className="p-3 rounded-lg bg-l-bg-2/50 dark:bg-d-bg-2/50 space-y-1">
-                  <p className="text-xs text-l-text-3 dark:text-d-text-3 uppercase tracking-wide">
-                    Stock
-                  </p>
-                  <p className="font-medium">
-                    {selectedProduct.stock_quantity ?? 'N/A'}
-                  </p>
-                </div>
-              </div>
-
-              {/* Pricing Section */}
-              <div className="space-y-3">
-                <h4 className="font-semibold flex items-center gap-2 text-sm text-l-text-2 dark:text-d-text-2">
-                  <span className="text-xs font-bold">TND</span>
-                  Pricing
-                </h4>
-                <div className="grid grid-cols-3 gap-3">
-                  <div className="p-4 bg-l-bg-2 dark:bg-d-bg-2 rounded-xl text-center border border-l-border dark:border-d-border">
-                    <p className="text-xs text-l-text-3 dark:text-d-text-3 mb-1">
-                      Purchase
-                    </p>
-                    <p className="text-lg font-bold">
-                      {formatPrice(selectedProduct.purchase_price)}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-primary/5 rounded-xl text-center border border-primary/20">
-                    <p className="text-xs text-l-text-3 dark:text-d-text-3 mb-1">
-                      Sales
-                    </p>
-                    <p className="text-lg font-bold text-primary">
-                      {formatPrice(selectedProduct.sales_price)}
-                    </p>
-                  </div>
-                  <div className="p-4 bg-green-50 dark:bg-green-950/30 rounded-xl text-center border border-green-200 dark:border-green-800">
-                    <p className="text-xs text-l-text-3 dark:text-d-text-3 mb-1">
-                      Promo
-                    </p>
-                    <p className="text-lg font-bold text-green-600">
-                      {formatPrice(selectedProduct.promotion_price) || '-'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Inventory Section */}
-              <div className="space-y-3">
-                <h4 className="font-semibold flex items-center gap-2 text-sm text-l-text-2 dark:text-d-text-2">
-                  <Layers className="size-4" />
-                  Inventory
-                </h4>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="p-3 rounded-lg bg-l-bg-2/50 dark:bg-d-bg-2/50 flex items-center justify-between">
-                    <span className="text-sm text-l-text-2 dark:text-d-text-2">
-                      Stock Management
-                    </span>
-                    <Badge
-                      variant={
-                        selectedProduct.manage_stock ? 'default' : 'secondary'
-                      }
-                    >
-                      {selectedProduct.manage_stock ? 'Enabled' : 'Disabled'}
-                    </Badge>
-                  </div>
-                  <div className="p-3 rounded-lg bg-l-bg-2/50 dark:bg-d-bg-2/50 flex items-center justify-between">
-                    <span className="text-sm text-l-text-2 dark:text-d-text-2">
-                      Quantity
-                    </span>
-                    <span className="font-bold">
-                      {selectedProduct.stock_quantity ?? '-'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Categories */}
-              {selectedProduct.category_names &&
-                selectedProduct.category_names.length > 0 && (
-                  <div className="space-y-3">
-                    <h4 className="font-semibold flex items-center gap-2 text-sm text-l-text-2 dark:text-d-text-2">
-                      <FolderTree className="size-4" />
-                      Categories
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                      {selectedProduct.category_names.map((cat, idx) => (
-                        <Badge
-                          key={`${selectedProduct.id}-cat-${idx}`}
-                          variant="secondary"
-                          className="px-3 py-1"
-                        >
-                          {cat}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
+      {/* View Detail */}
+      <ResponsiveSheet
+        open={viewOpen} onOpenChange={setViewOpen}
+        title="Product Details"
+        className="sm:max-w-lg"
+        footer={selected && !selected.is_deleted ? (
+          <>
+            <Button variant="outline" size="sm" className="gap-1.5 flex-1 sm:flex-none" onClick={() => { if (selected) { setViewOpen(false); openBcScan(selected); } }}>
+              <ScanBarcode className="size-4" /> Scan Barcode
+            </Button>
+            <Button size="sm" className="gap-1.5 flex-1 sm:flex-none" onClick={() => { if (selected) { setViewOpen(false); openEdit(selected); } }}>
+              <Pencil className="size-4" /> Update
+            </Button>
+          </>
+        ) : selected?.is_deleted ? (
+          <Button variant="outline" size="sm" className="gap-1.5 flex-1 sm:flex-none text-green-600" onClick={() => { if (selected) { setViewOpen(false); doRestore(selected); } }}>
+            <RotateCcw className="size-4" /> Restore
+          </Button>
+        ) : undefined}
+      >
+        {selected && (
+          <div className="space-y-5 py-2">
+            {/* Hero image */}
+            {selected.image_url && (
+              <div className="relative flex justify-center rounded-xl overflow-hidden bg-muted/30 border">
+                <img src={getMediaUrl(selected.image_url)} alt={selected.name} className="max-h-48 object-contain p-2" loading="lazy" />
+                {selected.is_pack && (
+                  <Badge variant="secondary" className="absolute top-2 left-2 text-xs">Pack</Badge>
                 )}
+                {selected.is_deleted && (
+                  <Badge variant="destructive" className="absolute top-2 right-2 text-xs">Deleted</Badge>
+                )}
+              </div>
+            )}
+            {!selected.image_url && (selected.is_pack || selected.is_deleted) && (
+              <div className="flex gap-2">
+                {selected.is_pack && <Badge variant="secondary">Pack</Badge>}
+                {selected.is_deleted && <Badge variant="destructive">Deleted — {fmtDateTime(selected.deleted_at)}</Badge>}
+              </div>
+            )}
 
-              {/* Timestamps */}
-              <div className="flex items-center justify-between text-xs text-l-text-3 dark:text-d-text-3 pt-4 border-t">
-                <div className="flex items-center gap-1.5">
-                  <Calendar className="size-3.5" />
-                  <span>
-                    Created:{' '}
-                    {new Date(selectedProduct.created_at).toLocaleDateString()}
-                  </span>
+            {/* Info grid */}
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3.5 text-sm">
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground mb-0.5">Name</p>
+                <p className="font-semibold text-base">{selected.name}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">Barcode</p>
+                <p className="font-mono text-sm">{selected.barcode || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">Brand</p>
+                <p>{selected.brand_name ?? '—'}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">Type</p>
+                <Badge variant="outline" className="capitalize">{selected.product_type}</Badge>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">Status</p>
+                {statusBadge(selected.status)}
+              </div>
+
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">Purchase Price</p>
+                <p className="tabular-nums">{fmtPrice(selected.purchase_price)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">Sales Price</p>
+                <p className="font-semibold tabular-nums">{fmtPrice(selected.sales_price)}</p>
+              </div>
+
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">Created</p>
+                <p className="text-xs">{fmtDateTime(selected.created_at)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">Updated</p>
+                <p className="text-xs">{fmtDateTime(selected.updated_at)}</p>
+              </div>
+
+              {selected.product_link && (
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-0.5">Product Link</p>
+                  <a href={selected.product_link} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline inline-flex items-center gap-1 text-sm break-all">
+                    {selected.product_link} <ExternalLink className="size-3 shrink-0" />
+                  </a>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <Calendar className="size-3.5" />
-                  <span>
-                    Updated:{' '}
-                    {new Date(selectedProduct.updated_at).toLocaleDateString()}
-                  </span>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Footer Actions */}
-          {selectedProduct && (
-            <div className="flex gap-3 pt-4 border-t mt-auto">
-              <Button
-                onClick={() => {
-                  setViewDialog(false);
-                  handleEdit(selectedProduct);
-                }}
-                className="flex-1 gap-2"
-              >
-                <Pencil className="size-4" />
-                Edit Product
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setViewDialog(false)}
-                className="flex-1"
-              >
-                Close
-              </Button>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Product Dialog */}
-      <Dialog
-        open={addDialog}
-        onOpenChange={open => {
-          setAddDialog(open);
-          if (!open) {
-            setFormData(initialFormData);
-            resetImageUploadState();
-          }
-        }}
-      >
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader className="pb-4 border-b">
-            <DialogTitle className="flex items-center gap-2">
-              <Plus className="size-5 text-primary" />
-              Add New Product
-            </DialogTitle>
-            <DialogDescription>
-              Create a new product in the system
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">{renderProductForm()}</div>
-          <div className="flex gap-3 pt-4 border-t">
-            <Button
-              onClick={handleAddProduct}
-              disabled={createProductMutation.isPending}
-              className="flex-1 gap-2"
-            >
-              <Plus className="size-4" />
-              {createProductMutation.isPending
-                ? 'Creating...'
-                : 'Create Product'}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setAddDialog(false)}
-              className="flex-1"
-            >
-              Cancel
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Edit Product Dialog */}
-      <Dialog
-        open={editDialog}
-        onOpenChange={open => {
-          setEditDialog(open);
-          if (!open) {
-            resetImageUploadState();
-          }
-        }}
-      >
-        <DialogContent className="w-[70vw] h-[70vh] max-w-none flex flex-col">
-          <DialogHeader className="pb-4 border-b">
-            <DialogTitle className="flex items-center gap-2">
-              <Pencil className="size-5 text-primary" />
-              Edit Product
-            </DialogTitle>
-            <DialogDescription>Update product information</DialogDescription>
-          </DialogHeader>
-          <div className="flex-1 overflow-y-auto py-4 pr-2">
-            {renderProductForm(true)}
-          </div>
-          <div className="flex gap-3 pt-4 border-t mt-auto">
-            <Button
-              onClick={handleSaveEdit}
-              disabled={partialUpdateProductMutation.isPending}
-              className="flex-1 gap-2"
-            >
-              <Pencil className="size-4" />
-              {partialUpdateProductMutation.isPending
-                ? 'Saving...'
-                : 'Save Changes'}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => setEditDialog(false)}
-              className="flex-1"
-            >
-              Cancel
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={deleteDialog} onOpenChange={setDeleteDialog}>
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
-              <Trash2 className="size-5" />
-              Delete Product
-            </AlertDialogTitle>
-            <AlertDialogDescription className="pt-2">
-              Are you sure you want to delete{' '}
-              <strong className="text-foreground">
-                {productToDelete?.name}
-              </strong>
-              ?
-              <br />
-              <span className="text-red-500 text-sm">
-                This action cannot be undone.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2">
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmDelete}
-              className="bg-red-600 hover:bg-red-700 gap-2"
-            >
-              <Trash2 className="size-4" />
-              Delete Product
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Bulk Delete Confirmation Dialog */}
-      <AlertDialog open={bulkDeleteDialog} onOpenChange={setBulkDeleteDialog}>
-        <AlertDialogContent className="max-w-md">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-red-600">
-              <Trash2 className="size-5" />
-              Delete {selectedProducts.length} Products
-            </AlertDialogTitle>
-            <AlertDialogDescription className="pt-2">
-              Are you sure you want to delete{' '}
-              <strong className="text-foreground">
-                {selectedProducts.length}
-              </strong>{' '}
-              selected products?
-              <br />
-              <span className="text-red-500 text-sm">
-                This action cannot be undone.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="gap-2">
-            <AlertDialogCancel disabled={bulkDeleteMutation.isPending}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={confirmBulkDelete}
-              className="bg-red-600 hover:bg-red-700 gap-2"
-              disabled={bulkDeleteMutation.isPending}
-            >
-              {bulkDeleteMutation.isPending ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                <>
-                  <Trash2 className="size-4" />
-                  Delete {selectedProducts.length} Products
-                </>
               )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Create Promotion Dialog */}
-      <Dialog open={promotionDialog} onOpenChange={setPromotionDialog}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Percent className="size-5 text-primary" />
-              Create Promotion for {selectedProducts.length} Product
-              {selectedProducts.length > 1 ? 's' : ''}
-            </DialogTitle>
-            <DialogDescription>
-              Set up a promotion that will be applied to all selected products.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4 py-4">
-            {/* Promotion Name */}
-            <div className="space-y-2">
-              <Label htmlFor="promo-name">Promotion Name *</Label>
-              <Input
-                id="promo-name"
-                value={promotionFormData.name}
-                onChange={e =>
-                  setPromotionFormData(prev => ({
-                    ...prev,
-                    name: e.target.value,
-                  }))
-                }
-                placeholder="e.g., Summer Sale, Black Friday"
-              />
-              <p className="text-xs text-l-text-3 dark:text-d-text-3">
-                Product name will be appended automatically
-              </p>
             </div>
 
-            {/* Description */}
-            <div className="space-y-2">
-              <Label htmlFor="promo-desc">Description</Label>
-              <Textarea
-                id="promo-desc"
-                value={promotionFormData.description}
-                onChange={e =>
-                  setPromotionFormData(prev => ({
-                    ...prev,
-                    description: e.target.value,
-                  }))
-                }
-                placeholder="Optional description..."
-                rows={2}
-              />
-            </div>
-
-            {/* Discount Type */}
-            <div className="space-y-2">
-              <Label>Discount Type</Label>
-              <Select
-                value={promotionFormData.discount_type}
-                onValueChange={val =>
-                  setPromotionFormData(prev => ({
-                    ...prev,
-                    discount_type: val as DiscountType,
-                    channel_rules: prev.channel_rules.map(r => ({
-                      ...r,
-                      discount_value: 0,
-                    })),
-                  }))
-                }
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {DISCOUNT_TYPE_OPTIONS.map(opt => (
-                    <SelectItem key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Default Discount Value */}
-            <div className="space-y-2">
-              <Label htmlFor="promo-discount">Default Discount Value</Label>
-              <div className="relative">
-                <Input
-                  id="promo-discount"
-                  type="number"
-                  min="0"
-                  max={
-                    promotionFormData.discount_type === 'percentage'
-                      ? 100
-                      : undefined
-                  }
-                  step="0.01"
-                  value={promotionFormData.default_discount_value}
-                  onChange={e =>
-                    setPromotionFormData(prev => ({
-                      ...prev,
-                      default_discount_value: e.target.value,
-                    }))
-                  }
-                  className="pr-8"
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-l-text-2 dark:text-d-text-2">
-                  {promotionFormData.discount_type === 'percentage'
-                    ? '%'
-                    : 'TND'}
-                </span>
-              </div>
-            </div>
-
-            {/* Dates */}
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="promo-start">Start Date</Label>
-                <Input
-                  id="promo-start"
-                  type="date"
-                  value={promotionFormData.start_date}
-                  onChange={e =>
-                    setPromotionFormData(prev => ({
-                      ...prev,
-                      start_date: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="promo-end">End Date</Label>
-                <Input
-                  id="promo-end"
-                  type="date"
-                  value={promotionFormData.end_date}
-                  onChange={e =>
-                    setPromotionFormData(prev => ({
-                      ...prev,
-                      end_date: e.target.value,
-                    }))
-                  }
-                />
-              </div>
-            </div>
-
-            {/* Channel Rules */}
-            <ChannelRuleBuilder
-              channels={salesChannels}
-              rules={promotionFormData.channel_rules}
-              onChange={rules =>
-                setPromotionFormData(prev => ({
-                  ...prev,
-                  channel_rules: rules,
-                }))
-              }
-              discountType={promotionFormData.discount_type}
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-4 border-t">
-            <Button
-              variant="outline"
-              onClick={() => setPromotionDialog(false)}
-              disabled={isCreatingPromotion}
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreatePromotions}
-              disabled={isCreatingPromotion}
-              className="gap-2"
-            >
-              {isCreatingPromotion ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  Creating...
-                </>
-              ) : (
-                <>
-                  <Percent className="size-4" />
-                  Create {selectedProducts.length} Promotion
-                  {selectedProducts.length > 1 ? 's' : ''}
-                </>
-              )}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Success Dialog */}
-      <AlertDialog open={successDialog} onOpenChange={setSuccessDialog}>
-        <AlertDialogContent className="max-w-sm">
-          <AlertDialogHeader>
-            <div className="mx-auto size-14 rounded-full bg-green-100 dark:bg-green-950 flex items-center justify-center mb-3">
-              <Check className="size-7 text-green-600" />
-            </div>
-            <AlertDialogTitle className="text-center text-green-600 dark:text-green-500">
-              Success!
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-center">
-              {successMessage}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter className="justify-center sm:justify-center">
-            <AlertDialogAction
-              onClick={() => setSuccessDialog(false)}
-              className="min-w-24"
-            >
-              OK
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Error Dialog */}
-      <AlertDialog open={errorDialog} onOpenChange={setErrorDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-red-600 dark:text-red-500">
-              ✗ Error
-            </AlertDialogTitle>
-            <AlertDialogDescription className="whitespace-pre-line">
-              {errorMessage}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setErrorDialog(false)}>
-              OK
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Sync with WooCommerce Dialog */}
-      <Dialog open={syncDialog} onOpenChange={setSyncDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <RefreshCw className="size-5" />
-              Sync Products from WooCommerce
-            </DialogTitle>
-            <DialogDescription>
-              Select the WooCommerce sales channel to sync products from
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {wooCommerceChannels.length === 0 ? (
-              <div className="text-center py-8">
-                <Globe className="size-12 mx-auto text-l-text-3 dark:text-d-text-3 mb-4" />
-                <p className="text-l-text-2 dark:text-d-text-2">
-                  No WooCommerce channels available
-                </p>
-                <p className="text-sm text-l-text-3 dark:text-d-text-3 mt-2">
-                  Please create a WooCommerce sales channel first
-                </p>
-              </div>
-            ) : (
+            {/* Pack Contents */}
+            {selected.is_pack && selected.pack_items && selected.pack_items.length > 0 && (
               <>
-                <div className="space-y-2">
-                  <Label>Select WooCommerce Store</Label>
-                  <Select
-                    value={selectedSyncChannel}
-                    onValueChange={setSelectedSyncChannel}
-                  >
-                    <SelectTrigger>
-                      <Store className="size-4 mr-2" />
-                      <SelectValue placeholder="Select a store to sync from" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {wooCommerceChannels.map(channel => (
-                        <SelectItem key={channel.id} value={String(channel.id)}>
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">
-                                {channel.name}
-                              </span>
-                              <Badge variant="outline" className="text-xs">
-                                {channel.brand_name}
-                              </Badge>
-                            </div>
-                            {channel.woocommerce_config?.store_url && (
-                              <span className="text-xs text-l-text-3 dark:text-d-text-3">
-                                {channel.woocommerce_config.store_url}
-                              </span>
-                            )}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {selectedSyncChannel && (
-                  <div className="p-4 bg-l-bg-2 dark:bg-d-bg-2 rounded-lg space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Tag className="size-4 text-primary" />
-                      <span className="text-sm font-medium">Brand:</span>
-                      <Badge>
-                        {
-                          wooCommerceChannels.find(
-                            ch => String(ch.id) === selectedSyncChannel
-                          )?.brand_name
-                        }
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Store className="size-4 text-primary" />
-                      <span className="text-sm font-medium">Store:</span>
-                      <span className="text-sm">
-                        {
-                          wooCommerceChannels.find(
-                            ch => String(ch.id) === selectedSyncChannel
-                          )?.name
-                        }
-                      </span>
-                    </div>
-                    {wooCommerceChannels.find(
-                      ch => String(ch.id) === selectedSyncChannel
-                    )?.woocommerce_config?.store_url && (
-                      <div className="flex items-center gap-2">
-                        <Globe className="size-4 text-primary" />
-                        <span className="text-sm font-medium">URL:</span>
-                        <span className="text-xs text-l-text-3 dark:text-d-text-3">
-                          {
-                            wooCommerceChannels.find(
-                              ch => String(ch.id) === selectedSyncChannel
-                            )?.woocommerce_config?.store_url
-                          }
-                        </span>
-                      </div>
-                    )}
+                <Separator />
+                <div className="space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <Package className="size-4 text-muted-foreground" />
+                    <span className="text-sm font-medium">Pack Contents</span>
+                    <Badge variant="secondary" className="text-xs">{selected.pack_items.length}</Badge>
                   </div>
-                )}
+                  <div className="rounded-lg border divide-y">
+                    {selected.pack_items.map((item, idx) => {
+                      const child = allProducts.find(ap => ap.id === item.product_id);
+                      const img = child ? getMediaUrl(child.image_url) : null;
+                      return (
+                        <div key={idx} className="flex items-center gap-3 p-2.5">
+                          <div className="size-9 rounded-md bg-muted flex items-center justify-center border flex-shrink-0 overflow-hidden">
+                            {img ? <img src={img} alt="" className="size-full object-cover" loading="lazy" /> : <Package className="size-3.5 text-muted-foreground" />}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium truncate">{child?.name ?? `Product #${item.product_id}`}</p>
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                              {child?.barcode && <span className="font-mono">{child.barcode}</span>}
+                              {child?.sales_price && <span className="tabular-nums">{fmtPrice(child.sales_price)}</span>}
+                            </div>
+                          </div>
+                          <Badge variant="outline" className="shrink-0 tabular-nums font-medium">×{item.quantity}</Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </>
             )}
           </div>
-          <div className="flex flex-col gap-3 pt-2 border-t">
-            <div className="flex gap-3">
-              <Button
-                onClick={handlePreviewProducts}
-                disabled={
-                  previewMutation.isPending ||
-                  !selectedSyncChannel ||
-                  wooCommerceChannels.length === 0
-                }
-                variant="outline"
-                className="flex-1 gap-2"
-              >
-                <Eye
-                  className={`size-4 ${previewMutation.isPending ? 'animate-pulse' : ''}`}
-                />
-                {previewMutation.isPending ? 'Loading...' : 'Preview & Select'}
-              </Button>
-              <Button
-                onClick={handleConfirmSync}
-                disabled={
-                  syncMutation.isPending ||
-                  !selectedSyncChannel ||
-                  wooCommerceChannels.length === 0
-                }
-                className="flex-1 gap-2"
-              >
-                <RefreshCw
-                  className={`size-4 ${syncMutation.isPending ? 'animate-spin' : ''}`}
-                />
-                {syncMutation.isPending ? 'Syncing...' : 'Sync All'}
-              </Button>
-            </div>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setSyncDialog(false);
-                setSelectedSyncChannel('');
-              }}
-              className="w-full"
+        )}
+      </ResponsiveSheet>
+
+      {/* Add Product */}
+      <ResponsiveSheet open={addOpen} onOpenChange={setAddOpen} title="New Product" description="Fill in the details to create a product." className="sm:max-w-lg"
+        footer={<>
+          <Button variant="outline" onClick={() => setAddOpen(false)} className="flex-1 sm:flex-none">Cancel</Button>
+          <Button onClick={submitCreate} disabled={createMut.isPending} className="flex-1 sm:flex-none gap-1.5">
+            {createMut.isPending && <Loader2 className="size-4 animate-spin" />} Create
+          </Button>
+        </>}>
+        {productForm}
+      </ResponsiveSheet>
+
+      {/* Edit Product */}
+      <ResponsiveSheet open={editOpen} onOpenChange={setEditOpen} title="Edit Product" description={form.name || 'Update product details'} className="sm:max-w-lg"
+        footer={<>
+          <Button variant="outline" onClick={() => setEditOpen(false)} className="flex-1 sm:flex-none">Cancel</Button>
+          <Button onClick={submitEdit} disabled={updateMut.isPending} className="flex-1 sm:flex-none gap-1.5">
+            {updateMut.isPending && <Loader2 className="size-4 animate-spin" />} Save Changes
+          </Button>
+        </>}>
+        {productForm}
+      </ResponsiveSheet>
+
+      {/* Delete Confirm */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent className="max-w-[400px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="size-5 text-destructive" /> Soft Delete
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm">
+              <span className="font-medium text-foreground">"{toDelete?.name}"</span> will be marked as deleted. You can restore it later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDel} className="bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5">
+              <Trash2 className="size-4" /> Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Hard Delete Confirm */}
+      <AlertDialog open={hardDeleteOpen} onOpenChange={setHardDeleteOpen}>
+        <AlertDialogContent className="max-w-[420px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="size-5 text-destructive" /> Permanent Delete
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-sm">
+              This will permanently remove <span className="font-medium text-foreground">"{toHardDelete?.name}"</span> from database. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmHardDel}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
             >
-              Cancel
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+              <Trash2 className="size-4" /> Delete Permanently
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-      {/* WooCommerce Products Preview Dialog */}
-      <Dialog open={previewDialog} onOpenChange={setPreviewDialog}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="size-5" />
-              WooCommerce Products - {previewData?.sales_channel_name}
-            </DialogTitle>
-            <DialogDescription>
-              Select products to sync from WooCommerce. Products marked "Exists"
-              will be updated.
-            </DialogDescription>
-          </DialogHeader>
+      {/* Bulk Delete */}
+      <AlertDialog open={bulkDelOpen} onOpenChange={setBulkDelOpen}>
+        <AlertDialogContent className="max-w-[400px]">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <Trash2 className="size-5 text-destructive" /> {onlyDeleted ? 'Permanently Delete' : 'Delete'} {selIds.length} Products
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {onlyDeleted
+                ? 'All selected deleted products will be permanently removed from database. This cannot be undone.'
+                : 'All selected products will be soft-deleted. You can restore them individually afterwards.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmBulkDel}
+              disabled={bulkDeleteMut.isPending || bulkHardDeleteMut.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
+            >
+              <Trash2 className="size-4" /> {onlyDeleted ? 'Delete Permanently' : 'Delete All'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
-          {previewData && (
-            <>
-              {/* Stats */}
-              <div className="flex gap-4 py-2">
-                <Badge variant="outline" className="gap-1">
-                  Total: {previewData.total_count}
-                </Badge>
-                <Badge variant="default" className="gap-1 bg-green-600">
-                  New: {previewData.new_count}
-                </Badge>
-                <Badge variant="secondary" className="gap-1">
-                  Existing: {previewData.existing_count}
-                </Badge>
-                <Badge variant="outline" className="gap-1">
-                  Selected: {selectedWcProducts.length}
-                </Badge>
-              </div>
-
-              {/* Selection controls */}
-              <div className="flex gap-2 pb-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={selectAllWcProducts}
-                >
-                  Select All
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={deselectAllWcProducts}
-                >
-                  Deselect All
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setSelectedWcProducts(
-                      previewData.products
-                        .filter(p => !p.exists_locally)
-                        .map(p => p.wc_id)
-                    )
-                  }
-                >
-                  Select New Only
-                </Button>
-              </div>
-
-              {/* Products list */}
-              <div className="max-h-[40vh] overflow-auto border rounded-lg">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead className="w-12">
-                        <Checkbox
-                          checked={
-                            selectedWcProducts.length ===
-                            previewData.products.length
-                          }
-                          onCheckedChange={checked => {
-                            if (checked) selectAllWcProducts();
-                            else deselectAllWcProducts();
-                          }}
-                        />
-                      </TableHead>
-                      <TableHead>Product</TableHead>
-                      <TableHead>SKU</TableHead>
-                      <TableHead>Price</TableHead>
-                      <TableHead>Stock</TableHead>
-                      <TableHead>Status</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {previewData.products.map(product => (
-                      <TableRow
-                        key={product.wc_id}
-                        className={
-                          selectedWcProducts.includes(product.wc_id)
-                            ? 'bg-primary/10'
-                            : ''
-                        }
-                      >
-                        <TableCell>
-                          <Checkbox
-                            checked={selectedWcProducts.includes(product.wc_id)}
-                            onCheckedChange={() =>
-                              toggleWcProductSelection(product.wc_id)
-                            }
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            {product.image ? (
-                              <img
-                                src={product.image}
-                                alt={product.name}
-                                className="size-10 object-cover rounded"
-                              />
-                            ) : (
-                              <div className="size-10 bg-l-bg-2 dark:bg-d-bg-2 rounded flex items-center justify-center">
-                                <Package className="size-5 text-l-text-3 dark:text-d-text-3" />
-                              </div>
-                            )}
-                            <div>
-                              <p className="font-medium">{product.name}</p>
-                              <div className="flex gap-1">
-                                {product.exists_locally ? (
-                                  <Badge
-                                    variant="secondary"
-                                    className="text-xs"
-                                  >
-                                    Exists
-                                  </Badge>
-                                ) : (
-                                  <Badge
-                                    variant="default"
-                                    className="text-xs bg-green-600"
-                                  >
-                                    New
-                                  </Badge>
-                                )}
-                                <Badge variant="outline" className="text-xs">
-                                  {product.type}
-                                </Badge>
-                              </div>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell className="text-sm text-l-text-2 dark:text-d-text-2">
-                          {product.sku || '-'}
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            <p>${product.price || '0'}</p>
-                            {product.sale_price && (
-                              <p className="text-green-600 text-xs">
-                                Sale: ${product.sale_price}
-                              </p>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              product.stock_status === 'instock'
-                                ? 'default'
-                                : 'destructive'
-                            }
-                          >
-                            {product.stock_status}
-                          </Badge>
-                          {product.stock_quantity !== null && (
-                            <span className="ml-1 text-xs">
-                              ({product.stock_quantity})
-                            </span>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant={
-                              product.status === 'publish'
-                                ? 'default'
-                                : 'secondary'
-                            }
-                          >
-                            {product.status}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-
-              {/* Action buttons */}
-              <div className="flex gap-3 pt-4 border-t">
-                <Button
-                  onClick={handleSyncSelected}
-                  disabled={
-                    syncSelectedMutation.isPending ||
-                    selectedWcProducts.length === 0
-                  }
-                  className="flex-1 gap-2"
-                >
-                  <RefreshCw
-                    className={`size-4 ${syncSelectedMutation.isPending ? 'animate-spin' : ''}`}
-                  />
-                  {syncSelectedMutation.isPending
-                    ? 'Syncing...'
-                    : `Sync Selected (${selectedWcProducts.length})`}
-                </Button>
-                <Button
-                  onClick={handleSyncAllFromPreview}
-                  disabled={syncMutation.isPending}
-                  variant="outline"
-                  className="flex-1 gap-2"
-                >
-                  <RefreshCw
-                    className={`size-4 ${syncMutation.isPending ? 'animate-spin' : ''}`}
-                  />
-                  Sync All ({previewData.total_count})
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setPreviewDialog(false);
-                    setPreviewData(null);
-                    setSelectedWcProducts([]);
-                  }}
-                >
-                  Cancel
-                </Button>
-              </div>
-            </>
+      {/* Camera Barcode scanners */}
+      {(scanOpen || bcUpdateOpen || packScanOpen) && (
+        <Suspense fallback={null}>
+          {scanOpen && (
+            <POSCameraScanner
+              open={scanOpen}
+              onOpenChange={setScanOpen}
+              onBarcodeDetected={handleSearchBarcode}
+              feedbackMessage={scanFeedback}
+              feedbackType={scanFeedbackType}
+            />
           )}
-        </DialogContent>
-      </Dialog>
+          {bcUpdateOpen && (
+            <POSCameraScanner
+              open={bcUpdateOpen}
+              onOpenChange={setBcUpdateOpen}
+              onBarcodeDetected={handleBcUpdateDetected}
+              feedbackMessage={bcUpdateFeedback}
+              feedbackType={bcUpdateFeedbackType}
+            />
+          )}
+          {packScanOpen && (
+            <POSCameraScanner
+              open={packScanOpen}
+              onOpenChange={setPackScanOpen}
+              onBarcodeDetected={handlePackScanBarcode}
+              feedbackMessage={packScanFeedback}
+              feedbackType={packScanFeedbackType}
+            />
+          )}
+        </Suspense>
+      )}
+
+      {/* WC Sync */}
+      <ResponsiveSheet open={syncOpen} onOpenChange={setSyncOpen} title="WooCommerce Sync" description="Select a sales channel to sync products from." className="sm:max-w-md"
+        footer={<>
+          <Button variant="outline" onClick={doPreview} disabled={!syncCh || previewMut.isPending} className="flex-1 sm:flex-none gap-1.5">
+            {previewMut.isPending && <Loader2 className="size-4 animate-spin" />} Preview
+          </Button>
+          <Button onClick={doSync} disabled={!syncCh || syncMut.isPending} className="flex-1 sm:flex-none gap-1.5">
+            {syncMut.isPending && <Loader2 className="size-4 animate-spin" />} Sync All
+          </Button>
+        </>}>
+        <div className="py-4">
+          <Label className="text-sm mb-2 block">Sales Channel</Label>
+          <Select value={syncCh} onValueChange={setSyncCh}>
+            <SelectTrigger><SelectValue placeholder="Select channel" /></SelectTrigger>
+            <SelectContent>{wcCh.map(c => <SelectItem key={c.id} value={String(c.id)}>{c.name}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+      </ResponsiveSheet>
+
+      {/* WC Preview */}
+      <ResponsiveSheet open={prevOpen} onOpenChange={setPrevOpen} title="WooCommerce Preview"
+        description={`${prevData?.sales_channel_name} — ${prevData?.total_count} products (${prevData?.new_count} new)`} className="sm:max-w-2xl"
+        footer={<>
+          <Button variant="outline" onClick={doSyncAllPrev} disabled={syncMut.isPending} className="flex-1 sm:flex-none">Sync All</Button>
+          <Button onClick={doSyncSel} disabled={!selWc.length || syncSelMut.isPending} className="flex-1 sm:flex-none">Sync ({selWc.length})</Button>
+        </>}>
+        <div className="space-y-3 py-2">
+          <div className="flex gap-2 text-xs">
+            <Button size="sm" variant="outline" className="h-7" onClick={() => prevData && setSelWc(prevData.products.map(p => p.wc_id))}>Select All</Button>
+            <Button size="sm" variant="outline" className="h-7" onClick={() => setSelWc([])}>Clear</Button>
+            <span className="text-muted-foreground self-center ml-auto">{selWc.length} selected</span>
+          </div>
+          <div className="border rounded-lg max-h-[45vh] overflow-y-auto divide-y">
+            {prevData?.products.map(p => (
+              <div key={p.wc_id} className="flex items-center gap-3 p-2.5 hover:bg-muted/50 transition-colors">
+                <Checkbox checked={selWc.includes(p.wc_id)} onCheckedChange={() => setSelWc(s => s.includes(p.wc_id) ? s.filter(x => x !== p.wc_id) : [...s, p.wc_id])} />
+                {p.image && <img src={p.image} alt="" className="size-9 rounded object-cover shrink-0" loading="lazy" />}
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-sm truncate">{p.name}</p>
+                  <p className="text-xs text-muted-foreground">{p.sku || 'No SKU'} · {p.price} TND</p>
+                </div>
+                {p.exists_locally
+                  ? <Badge variant="secondary" className="text-xs shrink-0"><Check className="size-3 mr-1" />Exists</Badge>
+                  : <Badge className="text-xs bg-green-600 shrink-0">New</Badge>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </ResponsiveSheet>
     </div>
   );
 }

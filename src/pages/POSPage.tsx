@@ -258,32 +258,7 @@ export default function POSPage() {
       // 2. Try API barcode search
       const apiResult = await productService.searchByBarcode(barcode);
       if (apiResult) {
-        // Convert full Product to ProductListItem shape for cart
-        const listItem: ProductListItem = {
-          id: apiResult.id,
-          wc_product_id: apiResult.wc_product_id,
-          sales_channel: apiResult.sales_channel,
-          sales_channel_name: apiResult.sales_channel_name,
-          brand: apiResult.brand,
-          brand_name: apiResult.brand_name,
-          name: apiResult.name,
-          slug: apiResult.slug,
-          barcode: apiResult.barcode,
-          product_type: apiResult.product_type,
-          status: apiResult.status,
-          inventory_status: apiResult.inventory_status,
-          purchase_price: apiResult.purchase_price,
-          sales_price: apiResult.sales_price,
-          promotion_price: apiResult.promotion_price,
-          stock_quantity: apiResult.stock_quantity,
-          manage_stock: apiResult.manage_stock,
-          image_url: apiResult.image_url,
-          categories: apiResult.categories,
-          category_names: apiResult.category_names,
-          created_at: apiResult.created_at,
-          updated_at: apiResult.updated_at,
-        };
-        addToCart(listItem);
+        addToCart(apiResult);
         setScanFeedback(`✓ ${apiResult.name} added`);
         setScanFeedbackType('success');
         return;

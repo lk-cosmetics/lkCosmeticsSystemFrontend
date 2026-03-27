@@ -51,6 +51,7 @@ import {
 } from '@/components/ui/alert-dialog';
 
 import { clientService } from '@/services/client.service';
+import { useBrands } from '@/hooks/queries';
 import type { Client, CreateClientRequest } from '@/types';
 
 /* ─── helpers ─── */
@@ -94,20 +95,72 @@ function ClientDetailContent({ client }: Readonly<{ client: Client }>) {
         <SourceBadge source={client.source} />
       </div>
       <div>
-        <span className="text-muted-foreground block text-xs">City</span>
-        <p>{client.city || '—'}</p>
+        <span className="text-muted-foreground block text-xs">Company</span>
+        <p>{client.company_name ?? '—'}</p>
       </div>
       <div>
-        <span className="text-muted-foreground block text-xs">Country</span>
-        <p>{client.country || '—'}</p>
+        <span className="text-muted-foreground block text-xs">Brand</span>
+        <p>{client.brand_name ?? '—'}</p>
+      </div>
+      <div>
+        <span className="text-muted-foreground block text-xs">Reseller</span>
+        <p>{client.reseller_name ?? '—'}</p>
       </div>
       <div>
         <span className="text-muted-foreground block text-xs">Channel</span>
         <p>{client.sales_channel_name ?? '—'}</p>
       </div>
       <div>
+        <span className="text-muted-foreground block text-xs">City</span>
+        <p>{client.city || '—'}</p>
+      </div>
+      <div>
+        <span className="text-muted-foreground block text-xs">State</span>
+        <p>{client.state || '—'}</p>
+      </div>
+      <div>
+        <span className="text-muted-foreground block text-xs">Postcode</span>
+        <p>{client.postcode || '—'}</p>
+      </div>
+      <div>
+        <span className="text-muted-foreground block text-xs">Country</span>
+        <p>{client.country || '—'}</p>
+      </div>
+      <div>
         <span className="text-muted-foreground block text-xs">WC ID</span>
         <p>{client.wc_customer_id ?? '—'}</p>
+      </div>
+      <div>
+        <span className="text-muted-foreground block text-xs">Points</span>
+        <p>{client.points}</p>
+      </div>
+      <div>
+        <span className="text-muted-foreground block text-xs">Orders</span>
+        <p>{client.number_of_orders}</p>
+      </div>
+      <div>
+        <span className="text-muted-foreground block text-xs">Returns</span>
+        <p>{client.number_of_returns}</p>
+      </div>
+      <div>
+        <span className="text-muted-foreground block text-xs">Status</span>
+        {client.is_blocked ? (
+          <Badge variant="destructive" className="text-xs">Blocked</Badge>
+        ) : (
+          <Badge variant="outline" className="text-xs bg-green-100 text-green-800">Active</Badge>
+        )}
+      </div>
+      <div>
+        <span className="text-muted-foreground block text-xs">Active</span>
+        <p>{client.is_active ? 'Yes' : 'No'}</p>
+      </div>
+      <div>
+        <span className="text-muted-foreground block text-xs">Created</span>
+        <p>{new Date(client.created_at).toLocaleString()}</p>
+      </div>
+      <div>
+        <span className="text-muted-foreground block text-xs">Updated</span>
+        <p>{new Date(client.updated_at).toLocaleString()}</p>
       </div>
       <div className="col-span-2">
         <span className="text-muted-foreground block text-xs">Address</span>
@@ -128,6 +181,8 @@ export default function ClientsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
+  const [blockedFilter, setBlockedFilter] = useState('all');
+  const [brandFilter, setBrandFilter] = useState('all');
   const [viewClient, setViewClient] = useState<Client | null>(null);
 
   // Add dialog
@@ -137,6 +192,9 @@ export default function ClientsPage() {
 
   // Delete dialog
   const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
+
+  // Brands data
+  const { data: brands = [] } = useBrands();
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -158,6 +216,12 @@ export default function ClientsPage() {
     let items = clients;
     if (sourceFilter !== 'all')
       items = items.filter(c => c.source === sourceFilter);
+    if (blockedFilter === 'blocked')
+      items = items.filter(c => c.is_blocked);
+    else if (blockedFilter === 'active')
+      items = items.filter(c => !c.is_blocked);
+    if (brandFilter !== 'all')
+      items = items.filter(c => String(c.brand) === brandFilter);
     if (search) {
       const q = search.toLowerCase();
       items = items.filter(
@@ -168,7 +232,12 @@ export default function ClientsPage() {
       );
     }
     return items;
-  }, [clients, sourceFilter, search]);
+  }, [clients, sourceFilter, blockedFilter, brandFilter, search]);
+
+  const blockedCount = useMemo(
+    () => clients.filter(c => c.is_blocked).length,
+    [clients]
+  );
 
   const handleAdd = async () => {
     if (!addForm.email || !addForm.company) return;
@@ -227,7 +296,7 @@ export default function ClientsPage() {
       </div>
 
       {/* KPI */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <Card>
           <CardHeader className="p-4 pb-1">
             <CardTitle className="text-xs text-muted-foreground">
@@ -270,6 +339,14 @@ export default function ClientsPage() {
             </p>
           </CardContent>
         </Card>
+        <Card>
+          <CardHeader className="p-4 pb-1">
+            <CardTitle className="text-xs text-red-600">Blocked</CardTitle>
+          </CardHeader>
+          <CardContent className="p-4 pt-0">
+            <p className="text-2xl font-bold text-red-600">{blockedCount}</p>
+          </CardContent>
+        </Card>
       </div>
 
       {/* filters */}
@@ -294,19 +371,51 @@ export default function ClientsPage() {
             <SelectItem value="MANUAL">Manual</SelectItem>
           </SelectContent>
         </Select>
+        <Select value={blockedFilter} onValueChange={setBlockedFilter}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Status" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Status</SelectItem>
+            <SelectItem value="blocked">Blocked</SelectItem>
+            <SelectItem value="active">Active</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select value={brandFilter} onValueChange={setBrandFilter}>
+          <SelectTrigger className="w-[160px]">
+            <SelectValue placeholder="Brand" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Brands</SelectItem>
+            {brands.map(b => (
+              <SelectItem key={b.id} value={String(b.id)}>
+                {b.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* table */}
-      <Card>
+      <Card className="overflow-auto">
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Email</TableHead>
               <TableHead>Name</TableHead>
               <TableHead>Phone</TableHead>
+              <TableHead>Brand</TableHead>
+              <TableHead>Reseller</TableHead>
+              <TableHead>Company</TableHead>
               <TableHead>City</TableHead>
+              <TableHead>Country</TableHead>
+              <TableHead>Channel</TableHead>
+              <TableHead className="text-center">Points</TableHead>
+              <TableHead className="text-center">Orders</TableHead>
+              <TableHead className="text-center">Returns</TableHead>
               <TableHead>Source</TableHead>
-              <TableHead>Registered</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Created</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
@@ -314,7 +423,7 @@ export default function ClientsPage() {
             {loading && (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={16}
                   className="text-center py-10 text-muted-foreground"
                 >
                   Loading…
@@ -324,7 +433,7 @@ export default function ClientsPage() {
             {!loading && filtered.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={16}
                   className="text-center py-10 text-muted-foreground"
                 >
                   No clients found.
@@ -333,15 +442,30 @@ export default function ClientsPage() {
             )}
             {!loading &&
               filtered.map(c => (
-                <TableRow key={c.id}>
-                  <TableCell className="font-medium">{c.email}</TableCell>
-                  <TableCell>{c.full_name}</TableCell>
-                  <TableCell className="text-xs">{c.phone || '—'}</TableCell>
+                <TableRow key={c.id} className={c.is_blocked ? 'opacity-60' : ''}>
+                  <TableCell className="font-medium whitespace-nowrap">{c.email}</TableCell>
+                  <TableCell className="whitespace-nowrap">{c.full_name}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">{c.phone || '—'}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">{c.brand_name ?? '—'}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">{c.reseller_name ?? '—'}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">{c.company_name ?? '—'}</TableCell>
                   <TableCell className="text-xs">{c.city || '—'}</TableCell>
+                  <TableCell className="text-xs">{c.country || '—'}</TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">{c.sales_channel_name ?? '—'}</TableCell>
+                  <TableCell className="text-xs text-center">{c.points}</TableCell>
+                  <TableCell className="text-xs text-center">{c.number_of_orders}</TableCell>
+                  <TableCell className="text-xs text-center">{c.number_of_returns}</TableCell>
                   <TableCell>
                     <SourceBadge source={c.source} />
                   </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
+                  <TableCell>
+                    {c.is_blocked ? (
+                      <Badge variant="destructive" className="text-xs">Blocked</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-xs bg-green-100 text-green-800">Active</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-xs whitespace-nowrap">
                     {new Date(c.created_at).toLocaleDateString()}
                   </TableCell>
                   <TableCell className="text-right space-x-1">
@@ -428,6 +552,36 @@ export default function ClientsPage() {
               <Input
                 value={addForm.city ?? ''}
                 onChange={e => setAddForm({ ...addForm, city: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Brand</Label>
+              <Select
+                value={addForm.brand != null ? String(addForm.brand) : ''}
+                onValueChange={v =>
+                  setAddForm({ ...addForm, brand: v ? Number(v) : null })
+                }
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select brand" />
+                </SelectTrigger>
+                <SelectContent>
+                  {brands.map(b => (
+                    <SelectItem key={b.id} value={String(b.id)}>
+                      {b.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Points</Label>
+              <Input
+                type="number"
+                value={addForm.points ?? 0}
+                onChange={e =>
+                  setAddForm({ ...addForm, points: Number(e.target.value) })
+                }
               />
             </div>
           </div>

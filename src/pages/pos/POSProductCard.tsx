@@ -21,23 +21,15 @@ export const POSProductCard = memo(function POSProductCard({
 
   const resolvedImg = getMediaUrl(product.image_url);
   const showImage = !!resolvedImg && !imgError;
-  const outOfStock = product.inventory_status === 'outofstock';
-
   const price = getEffectivePrice(product);
-  const hasPromo =
-    product.promotion_price &&
-    Number(product.promotion_price) > 0 &&
-    product.promotion_price !== product.sales_price;
 
   return (
     <Card
       role="button"
       tabIndex={0}
       aria-label={`Add ${product.name} — ${fmtTND(price)} TND`}
-      aria-disabled={outOfStock}
-      className={`cursor-pointer group overflow-hidden transition-all duration-150
-        hover:border-primary hover:shadow-md active:scale-[0.97] select-none
-        ${outOfStock ? 'opacity-50 pointer-events-none' : ''}`}
+      className="cursor-pointer group overflow-hidden transition-all duration-150
+        hover:border-primary hover:shadow-md active:scale-[0.97] select-none"
       onClick={onAdd}
       onKeyDown={e => {
         if (e.key === 'Enter' || e.key === ' ') {
@@ -66,23 +58,6 @@ export const POSProductCard = memo(function POSProductCard({
             {cartQuantity}
           </Badge>
         )}
-
-        {/* Out of stock */}
-        {outOfStock && (
-          <Badge
-            variant="destructive"
-            className="absolute top-1.5 right-1.5 text-[10px] px-1.5 py-0"
-          >
-            Out
-          </Badge>
-        )}
-
-        {/* Promo badge */}
-        {hasPromo && !outOfStock && (
-          <Badge className="absolute top-1.5 left-1.5 text-[10px] px-1.5 py-0 bg-green-600">
-            Promo
-          </Badge>
-        )}
       </div>
 
       {/* Info */}
@@ -94,18 +69,7 @@ export const POSProductCard = memo(function POSProductCard({
           {product.barcode || '—'}
         </p>
         <div className="mt-1.5 flex items-baseline gap-1.5">
-          {hasPromo ? (
-            <>
-              <span className="text-sm font-bold text-green-600">
-                {fmtTND(Number(product.promotion_price))}
-              </span>
-              <span className="text-xs text-muted-foreground line-through">
-                {fmtTND(Number(product.sales_price))}
-              </span>
-            </>
-          ) : (
-            <span className="text-sm font-bold">{fmtTND(price)}</span>
-          )}
+          <span className="text-sm font-bold">{fmtTND(price)}</span>
           <span className="text-[10px] text-muted-foreground">TND</span>
         </div>
       </CardContent>

@@ -45,10 +45,9 @@ import {
 } from '@/components/ui/select';
 import { userService } from '@/services/user.service';
 import { profileService } from '@/services/profile.service';
-import { roleService } from '@/services/role.service';
 import { companyService } from '@/services/company.service';
 import { brandService } from '@/services/brand.service';
-import type { UserDetails, Role, CompanyListItem, Brand } from '@/types';
+import type { UserDetails, CompanyListItem, Brand } from '@/types';
 import { toast } from 'sonner';
 
 // Tunisia cities constant
@@ -84,7 +83,6 @@ const editUserSchema = z.object({
   email: z.string().email('Invalid email address'),
   first_name: z.string().min(2, 'First name must be at least 2 characters'),
   last_name: z.string().min(2, 'Last name must be at least 2 characters'),
-  role: z.number().min(1, 'Role is required'),
   current_company: z.number().nullable().optional(),
   can_switch_brands: z.boolean(),
   is_active: z.boolean(),
@@ -105,7 +103,6 @@ export default function EditUserPage() {
   const navigate = useNavigate();
 
   const [user, setUser] = useState<UserDetails | null>(null);
-  const [roles, setRoles] = useState<Role[]>([]);
   const [companies, setCompanies] = useState<CompanyListItem[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [filteredBrands, setFilteredBrands] = useState<Brand[]>([]);
@@ -151,16 +148,14 @@ export default function EditUserPage() {
 
       setIsLoading(true);
       try {
-        const [userData, rolesData, companiesData, brandsData] =
+        const [userData, companiesData, brandsData] =
           await Promise.all([
             userService.getUserById(Number.parseInt(id)),
-            roleService.getAllRoles(),
             companyService.getAllCompanies(),
             brandService.getAllBrands(),
           ]);
 
         setUser(userData);
-        setRoles(rolesData);
         setCompanies(companiesData);
         setBrands(brandsData);
         setSelectedBrands(userData.allowed_brands);
@@ -181,7 +176,6 @@ export default function EditUserPage() {
           email: userData.email,
           first_name: userData.first_name,
           last_name: userData.last_name,
-          role: userData.role,
           current_company: userData.current_company,
           can_switch_brands: userData.can_switch_brands,
           is_active: userData.is_active,
@@ -302,7 +296,6 @@ export default function EditUserPage() {
         email: data.email,
         first_name: data.first_name,
         last_name: data.last_name,
-        role: data.role,
         current_company: data.current_company,
         allowed_brands: selectedBrands,
         can_switch_brands: data.can_switch_brands,
@@ -867,29 +860,13 @@ export default function EditUserPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label htmlFor="role">Role *</Label>
-                    <Select
-                      value={watch('role')?.toString()}
-                      onValueChange={value =>
-                        setValue('role', Number.parseInt(value))
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select a role" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {roles.map(role => (
-                          <SelectItem key={role.id} value={role.id.toString()}>
-                            {role.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {errors.role && (
-                      <p className="text-sm text-red-500">
-                        {errors.role.message}
-                      </p>
-                    )}
+                    <Label>Role</Label>
+                    <p className="text-sm font-medium capitalize px-3 py-2 rounded-md border bg-l-bg-2 dark:bg-d-bg-2">
+                      {user?.role_name || 'No role assigned'}
+                    </p>
+                    <p className="text-xs text-l-text-3 dark:text-d-text-3">
+                      Roles are managed via RBAC assignments
+                    </p>
                   </div>
 
                   <div className="space-y-2">

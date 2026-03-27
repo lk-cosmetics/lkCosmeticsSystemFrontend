@@ -1397,9 +1397,9 @@ export default function CategoriesPage() {
                               <span className="font-medium">{channel.name}</span>
                               <Badge variant="outline" className="text-xs">{channel.brand_name}</Badge>
                             </div>
-                            {channel.woocommerce_config?.store_url && (
+                            {channel.wc_store_url && (
                               <span className="text-xs text-l-text-3 dark:text-d-text-3">
-                                {channel.woocommerce_config.store_url}
+                                {channel.wc_store_url}
                               </span>
                             )}
                           </div>
@@ -1420,12 +1420,12 @@ export default function CategoriesPage() {
                       <span className="text-sm font-medium">Store:</span>
                       <span className="text-sm">{wooCommerceChannels.find(ch => String(ch.id) === selectedSyncChannel)?.name}</span>
                     </div>
-                    {wooCommerceChannels.find(ch => String(ch.id) === selectedSyncChannel)?.woocommerce_config?.store_url && (
+                    {wooCommerceChannels.find(ch => String(ch.id) === selectedSyncChannel)?.wc_store_url && (
                       <div className="flex items-center gap-2">
                         <Globe className="size-4 text-primary" />
                         <span className="text-sm font-medium">URL:</span>
                         <span className="text-xs text-l-text-3 dark:text-d-text-3">
-                          {wooCommerceChannels.find(ch => String(ch.id) === selectedSyncChannel)?.woocommerce_config?.store_url}
+                          {wooCommerceChannels.find(ch => String(ch.id) === selectedSyncChannel)?.wc_store_url}
                         </span>
                       </div>
                     )}

@@ -777,9 +777,9 @@ export default function OrdersPage() {
                                 {ch.brand_name}
                               </Badge>
                             </div>
-                            {ch.woocommerce_config?.store_url && (
+                            {ch.wc_store_url && (
                               <span className="text-xs text-muted-foreground">
-                                {ch.woocommerce_config.store_url}
+                                {ch.wc_store_url}
                               </span>
                             )}
                           </div>
@@ -803,7 +803,7 @@ export default function OrdersPage() {
                     </div>
                     {wooCommerceChannels.find(
                       c => String(c.id) === selectedSyncChannel
-                    )?.woocommerce_config?.store_url && (
+                    )?.wc_store_url && (
                       <div className="flex items-center gap-2">
                         <Globe className="h-4 w-4 text-primary" />
                         <span className="text-sm font-medium">URL:</span>
@@ -811,7 +811,7 @@ export default function OrdersPage() {
                           {
                             wooCommerceChannels.find(
                               c => String(c.id) === selectedSyncChannel
-                            )?.woocommerce_config?.store_url
+                            )?.wc_store_url
                           }
                         </span>
                       </div>

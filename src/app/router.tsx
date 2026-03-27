@@ -5,6 +5,7 @@ import DashbordLayout from '@/components/dashboardLayout/pageDashbord';
 import LoginPage from '@/pages/login';
 import ForgotPasswordPage from '@/pages/ForgotPasswordPage';
 import ResetPasswordPage from '@/pages/ResetPasswordPage';
+import AcceptInvitationPage from '@/pages/AcceptInvitationPage';
 import NotFoundPage from '@/pages/NotFoundPage';
 import StatisticsPage from '@/pages/StatisticsPage';
 import AddUserPageNew from '@/pages/AddUserPageNew';
@@ -141,6 +142,7 @@ export function AppRouter() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
 
         {/* 404 Page - catches all unmatched routes */}
         <Route path="*" element={<NotFoundPage />} />

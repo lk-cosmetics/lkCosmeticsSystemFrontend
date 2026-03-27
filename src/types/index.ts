@@ -139,8 +139,7 @@ export interface UserDetails {
   first_name: string;
   last_name: string;
   full_name: string;
-  role: number;
-  role_name: string;
+  role_name: string | null;
   can_switch_brands: boolean;
   current_company: number | null;
   company_name: string | null;
@@ -298,14 +297,6 @@ export interface PaginatedResponse<T> {
   results: T[];
 }
 
-// WooCommerce Config Type
-export interface WooCommerceConfig {
-  store_url: string;
-  consumer_key?: string;
-  consumer_secret?: string;
-  webhook_token?: string;
-}
-
 // Sales Channel Types
 export type ChannelType = 'WOOCOMMERCE' | 'POS';
 
@@ -327,7 +318,10 @@ export interface SalesChannel {
   city: string;
   phone: string;
   email: string;
-  woocommerce_config?: WooCommerceConfig | null;
+  wc_store_url: string;
+  wc_consumer_key: string;
+  wc_consumer_secret: string;
+  wc_webhook_token: string;
   created_at: string;
   updated_at: string;
 }
@@ -351,20 +345,17 @@ export interface CreateSalesChannelRequest {
   city?: string;
   phone?: string;
   email?: string;
-  woocommerce_config?: {
-    store_url: string;
-    consumer_key: string;
-    consumer_secret: string;
-  };
+  wc_store_url?: string;
+  wc_consumer_key?: string;
+  wc_consumer_secret?: string;
 }
 
 export interface GenerateCredentialsResponse {
   message: string;
-  credentials: {
-    webhook_token: string;
-  };
+  webhook_token: string;
   channel_id: number;
   channel_name: string;
+  usage_hint?: string;
 }
 
 // Brand Types
@@ -384,32 +375,6 @@ export interface CreateBrandRequest {
   company: number;
   name: string;
   logo?: File | null;
-}
-
-// Role Types
-export interface Role {
-  id: number;
-  name: string;
-  description: string;
-  can_switch_brands: boolean;
-  is_admin: boolean;
-  permissions_count: number;
-  users_count?: number;
-  created_at: string;
-}
-
-export interface CreateRoleRequest {
-  name: string;
-  description?: string;
-  can_switch_brands?: boolean;
-  is_admin?: boolean;
-}
-
-export interface UpdateRoleRequest {
-  name?: string;
-  description?: string;
-  can_switch_brands?: boolean;
-  is_admin?: boolean;
 }
 
 // Extended User Profile Types
@@ -481,8 +446,7 @@ export interface UserListItem {
   first_name: string;
   last_name: string;
   full_name: string;
-  role: number;
-  role_name: string;
+  role_name: string | null;
   can_switch_brands: boolean;
   current_company: number | null;
   company_name: string | null;
@@ -501,7 +465,6 @@ export interface CreateUserRequest {
   last_name: string;
   // Optional fields
   current_company?: number;
-  role?: number;
   allowed_brands?: number[];
   // Profile fields
   cin_number?: string;
@@ -520,7 +483,6 @@ export interface UpdateUserFullRequest {
   email?: string;
   first_name?: string;
   last_name?: string;
-  role?: number;
   current_company?: number | null;
   allowed_brands?: number[];
   can_switch_brands?: boolean;
@@ -536,108 +498,83 @@ export interface AdminChangePasswordRequest {
 // PRODUCT TYPES
 // =============================================================================
 
-export type InventoryStatus = 'instock' | 'outofstock' | 'onbackorder';
-export type ProductType = 'simple' | 'variable' | 'grouped' | 'external';
+export type ProductType = 'resell' | 'packaging';
 export type ProductStatus = 'publish' | 'draft' | 'pending' | 'private';
+
+export interface PackItem {
+  product_id: number;
+  quantity: number;
+}
+
+export interface PackItemDetail {
+  product_id: number;
+  quantity: number;
+  product_name: string;
+  product_image: string;
+  product_barcode: string;
+}
+
+export interface PackStockEntry {
+  sales_channel_id: number;
+  sales_channel_name: string;
+  available_quantity: number;
+}
 
 export interface ProductListItem {
   id: number;
   wc_product_id: number;
-  sales_channel: number;
-  sales_channel_name: string;
   brand: number | null;
   brand_name: string | null;
   name: string;
-  slug: string;
+  image_url: string;
+  product_link: string;
   barcode: string;
   product_type: ProductType;
   status: ProductStatus;
-  inventory_status: InventoryStatus;
   purchase_price: string;
   sales_price: string;
-  promotion_price: string | null;
-  stock_quantity: number | null;
-  manage_stock: boolean;
-  image_url: string;
-  categories: number[];
-  category_names: string[];
+  is_pack: boolean;
+  pack_items: PackItem[] | null;
   created_at: string;
   updated_at: string;
+  is_deleted: boolean;
+  deleted_at: string | null;
 }
 
 export interface Product extends ProductListItem {
-  description: string;
-  short_description: string;
-  weight: string | null;
-  dimensions: {
-    length?: string;
-    width?: string;
-    height?: string;
-  } | null;
-  gallery_images: string[];
-  attributes: Record<string, unknown>[];
-  variations: number[];
-  wc_created_at: string | null;
-  wc_updated_at: string | null;
-  last_synced_at: string;
-  created_by: number | null;
-  updated_by: number | null;
+  profit_margin: number | null;
+  pack_items_detail: PackItemDetail[] | null;
+  last_synced_at: string | null;
+  wc_date_created: string | null;
+  wc_date_modified: string | null;
 }
 
 export interface CreateProductRequest {
-  wc_product_id: number;
-  sales_channel: number;
   name: string;
-  slug?: string;
   barcode?: string;
-  description?: string;
-  short_description?: string;
   product_type?: ProductType;
   status?: ProductStatus;
   brand?: number;
-  categories?: number[];
   purchase_price?: string;
   sales_price?: string;
-  promotion_price?: string | null;
-  inventory_status?: InventoryStatus;
-  stock_quantity?: number | null;
-  manage_stock?: boolean;
   image_url?: string;
-  image_upload?: File | null;
-  gallery_images?: string[];
-  weight?: string;
-  dimensions?: {
-    length?: string;
-    width?: string;
-    height?: string;
-  };
+  product_link?: string;
+  is_pack?: boolean;
+  pack_items?: PackItem[] | null;
 }
 
 export interface UpdateProductRequest {
   name?: string;
-  slug?: string;
   barcode?: string;
-  description?: string;
-  short_description?: string;
   product_type?: ProductType;
   status?: ProductStatus;
   brand?: number | null;
-  categories?: number[];
   purchase_price?: string;
   sales_price?: string;
-  promotion_price?: string | null;
-  inventory_status?: InventoryStatus;
-  stock_quantity?: number | null;
-  manage_stock?: boolean;
   image_url?: string;
-  image_upload?: File | null;
-  gallery_images?: string[];
-  weight?: string;
-  dimensions?: {
-    length?: string;
-    width?: string;
-    height?: string;
-  };
+  product_link?: string;
+  is_pack?: boolean;
+  pack_items?: PackItem[] | null;
 }
 
 // =============================================================================
@@ -989,6 +926,10 @@ export interface Client {
   id: number;
   company: number;
   company_name: string;
+  brand: number | null;
+  brand_name: string | null;
+  reseller: number | null;
+  reseller_name: string | null;
   email: string;
   first_name: string;
   last_name: string;
@@ -1003,6 +944,10 @@ export interface Client {
   sales_channel: number | null;
   sales_channel_name: string | null;
   wc_customer_id: number | null;
+  points: number;
+  number_of_orders: number;
+  number_of_returns: number;
+  is_blocked: boolean;
   notes: string;
   is_active: boolean;
   created_by: number | null;
@@ -1022,9 +967,15 @@ export interface CreateClientRequest {
   postcode?: string;
   country?: string;
   source?: 'WOOCOMMERCE' | 'POS' | 'MANUAL';
+  brand?: number | null;
+  reseller?: number | null;
   sales_channel?: number | null;
   wc_customer_id?: number | null;
   notes?: string;
+  points?: number;
+  number_of_orders?: number;
+  number_of_returns?: number;
+  is_blocked?: boolean;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

@@ -83,7 +83,12 @@ export const rbacService = {
 
   // ── Roles ──
   getRoles: (params?: Record<string, unknown>) =>
-    apiClient.get<RBACRole[]>(`${BASE}/roles/`, { params }).then(r => r.data),
+    apiClient
+      .get<{ results: RBACRole[] } | RBACRole[]>(`${BASE}/roles/`, { params })
+      .then(r => {
+        const data = r.data;
+        return Array.isArray(data) ? data : data.results;
+      }),
 
   getRole: (id: number) =>
     apiClient.get<RBACRole>(`${BASE}/roles/${id}/`).then(r => r.data),

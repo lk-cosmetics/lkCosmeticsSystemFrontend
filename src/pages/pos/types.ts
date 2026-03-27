@@ -20,10 +20,8 @@ export interface PrintableOrderData {
 
 /* ── Helpers ───────────────────────────────────────────────────────────── */
 
-/** Resolve the effective selling price (promo when active, else regular). */
+/** Resolve the effective selling price. */
 export function getEffectivePrice(product: ProductListItem): number {
-  const promo = Number(product.promotion_price);
-  if (promo > 0) return promo;
   return Number(product.sales_price);
 }
 
