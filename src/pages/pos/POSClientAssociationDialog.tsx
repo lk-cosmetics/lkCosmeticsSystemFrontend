@@ -74,7 +74,7 @@ export function POSClientAssociationDialog({
     return clients.filter(client => {
       return (
         client.full_name.toLowerCase().includes(query) ||
-        client.phone.toLowerCase().includes(query) ||
+        (client.phone ?? '').toLowerCase().includes(query) ||
         client.email.toLowerCase().includes(query)
       );
     });

@@ -7,6 +7,9 @@ export * from './useSalesChannels';
 // Brand hooks
 export * from './useBrands';
 
+// Client hooks
+export * from './useClients';
+
 // Company hooks
 export * from './useCompanies';
 

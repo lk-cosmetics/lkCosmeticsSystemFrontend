@@ -124,7 +124,7 @@ export default function POSPage() {
         clientService.getAll({ page_size: 1000 }),
       ]);
       setChannels(chRes);
-      setClients(clRes.results ?? clRes);
+      setClients(Array.isArray(clRes) ? clRes : clRes.results);
     } catch (err) {
       console.error('Failed to load POS data:', err);
     } finally {
@@ -140,10 +140,9 @@ export default function POSPage() {
   const selectedChannel = channels.find(c => c.id === Number(channelId));
   const productQueryParams = useMemo(() => {
     if (!channelId || !selectedChannel) return { enabled: false as const };
-    if (selectedChannel.channel_type === 'POS') {
-      return { brand: selectedChannel.brand, enabled: true as const };
-    }
-    return { sales_channel: Number(channelId), enabled: true as const };
+    // Products are brand-scoped. Filtering by brand guarantees the list
+    // matches the selected sales channel's brand for all channel types.
+    return { brand: selectedChannel.brand, enabled: true as const };
   }, [channelId, selectedChannel]);
 
   const {
@@ -327,7 +326,7 @@ export default function POSPage() {
             email: selectedClient.email,
             first_name: selectedClient.first_name,
             last_name: selectedClient.last_name,
-            phone: selectedClient.phone,
+            phone: selectedClient.phone ?? undefined,
             city: selectedClient.city,
           }
         : undefined,

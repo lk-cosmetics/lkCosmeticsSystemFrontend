@@ -1,253 +1,137 @@
 /**
- * OrdersPage – Lists all orders with filtering, detail view dialog,
- * status-update capability, and WooCommerce sync (like ProductsPage).
+ * OrdersPage – Clean, responsive order management with KPI dashboard,
+ * filtering, detail/edit dialogs (responsive: Dialog on desktop, Drawer on mobile),
+ * WooCommerce sync, and soft-delete support.
+ *
+ * Architecture:
+ *   - Data fetched via service layer (no React Query — matches existing pattern)
+ *   - Deferred search for instant-feel filtering
+ *   - Memoised helpers to avoid re-renders
+ *   - Mobile-responsive table with progressive column hiding
+ *   - Always-visible action buttons (no opacity tricks)
  */
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useEffect, useMemo, useState, useCallback, useDeferredValue, type ReactNode } from 'react';
 import {
-  IconShoppingCart,
-  IconSearch,
-  IconRefresh,
-  IconEye,
-} from '@tabler/icons-react';
-import {
-  CheckCircle,
-  XCircle,
-  Clock,
-  Package,
-  RefreshCw,
-  Globe,
-  Eye,
-  Store,
-  Loader2,
-  Check,
+  ShoppingCart, Search, RefreshCw, Eye, MoreVertical,
+  CheckCircle, Clock, Package, Pencil, History, Trash2,
+  Undo2, Loader2, TrendingUp,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
+  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from '@/components/ui/table';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 import { orderService } from '@/services/order.service';
+import { productService } from '@/services/product.service';
 import { salesChannelService } from '@/services/salesChannel.service';
 import { useAuthStore } from '@/store/authStore';
 import { hasAnyRole } from '@/hooks/useAuth';
 import type {
-  OrderListItem,
-  OrderDetail,
-  OrderSummary,
-  OrderStatus,
-  SalesChannel,
+  OrderListItem, OrderDetail, OrderEditLineInput, OrderEditRequest,
+  OrderDiscountType, OrderSummary, OrderStatus, SalesChannel, ProductListItem,
+  OrderLogEntry,
 } from '@/types';
 import type { WooCommerceOrderPreviewResponse } from '@/services/order.service';
-import { getMediaUrl } from '@/utils/helpers';
 
-/* ─── helpers extracted to keep component complexity low ─── */
+import {
+  OrderDetailDialog, SyncDialog, PreviewDialog, LogsDialog, MessageAlert,
+} from './components/OrderDialogs';
 
-const STATUS_COLORS: Record<string, string> = {
-  PENDING: 'bg-yellow-100 text-yellow-800',
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* HELPERS                                                                   */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+const STATUS_STYLES: Record<string, string> = {
+  PENDING:    'bg-amber-100 text-amber-800',
   PROCESSING: 'bg-blue-100 text-blue-800',
-  ON_HOLD: 'bg-orange-100 text-orange-800',
-  COMPLETED: 'bg-green-100 text-green-800',
-  CANCELLED: 'bg-red-100 text-red-800',
-  REFUNDED: 'bg-purple-100 text-purple-800',
-  FAILED: 'bg-gray-100 text-gray-800',
+  ON_HOLD:    'bg-orange-100 text-orange-800',
+  COMPLETED:  'bg-emerald-100 text-emerald-800',
+  CANCELLED:  'bg-red-100 text-red-800',
+  REFUNDED:   'bg-purple-100 text-purple-800',
+  FAILED:     'bg-gray-100 text-gray-800',
 };
 
-const SOURCE_COLORS: Record<string, string> = {
+const SOURCE_STYLES: Record<string, string> = {
   WOOCOMMERCE: 'bg-indigo-100 text-indigo-800',
-  POS: 'bg-teal-100 text-teal-800',
-  MANUAL: 'bg-gray-100 text-gray-700',
+  POS:         'bg-teal-100 text-teal-800',
+  MANUAL:      'bg-slate-100 text-slate-700',
 };
 
-function StatusBadge({ status }: Readonly<{ status: string }>) {
+const PAYMENT_STYLES: Record<string, string> = {
+  PAID:     'bg-emerald-100 text-emerald-800',
+  UNPAID:   'bg-red-100 text-red-800',
+  PARTIAL:  'bg-amber-100 text-amber-800',
+  REFUNDED: 'bg-purple-100 text-purple-800',
+};
+
+function StatusBadge({ status }: { status: string }) {
   return (
-    <Badge
-      variant="outline"
-      className={`text-xs ${STATUS_COLORS[status] ?? ''}`}
-    >
+    <Badge variant="outline" className={`text-xs border-transparent ${STATUS_STYLES[status] ?? ''}`}>
       {status.replace('_', ' ')}
     </Badge>
   );
 }
 
-function SourceBadge({ source }: Readonly<{ source: string }>) {
+function SourceBadge({ source }: { source: string }) {
   return (
-    <Badge
-      variant="outline"
-      className={`text-xs ${SOURCE_COLORS[source] ?? ''}`}
-    >
+    <Badge variant="outline" className={`text-xs border-transparent ${SOURCE_STYLES[source] ?? ''}`}>
       {source}
     </Badge>
   );
 }
 
-/* ─── detail content extracted as a separate component ─── */
-
-interface DetailProps {
-  order: OrderDetail;
-  onStatusChange: (id: number, s: OrderStatus) => void;
+function PaymentBadge({ status }: { status: string }) {
+  return (
+    <Badge variant="outline" className={`text-xs border-transparent ${PAYMENT_STYLES[status] ?? ''}`}>
+      {status}
+    </Badge>
+  );
 }
 
-function OrderDetailContent({ order, onStatusChange }: Readonly<DetailProps>) {
+const fmtCurrency = (currency: string, value: string) => `${currency} ${value}`;
+
+const fmtDate = (d: string) =>
+  new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* KPI CARD                                                                  */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+function KpiCard({ title, value, tone, icon }: Readonly<{
+  title: string; value: string | number; tone?: string; icon?: ReactNode;
+}>) {
   return (
-    <>
-      {/* header summary */}
-      <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm mt-2">
-        <div>
-          <span className="text-muted-foreground block text-xs">Channel</span>
-          <p className="font-medium">{order.sales_channel_name}</p>
-        </div>
-        <div>
-          <span className="text-muted-foreground block text-xs">Client</span>
-          <p>{order.client_name ?? order.client_email ?? '—'}</p>
-        </div>
-        <div>
-          <span className="text-muted-foreground block text-xs">Source</span>
-          <SourceBadge source={order.source} />
-        </div>
-        <div>
-          <span className="text-muted-foreground block text-xs">Status</span>
-          <StatusBadge status={order.status} />
-        </div>
-        <div>
-          <span className="text-muted-foreground block text-xs">Payment</span>
-          <p>
-            {order.payment_method || '—'} ({order.payment_status})
-          </p>
-        </div>
-        <div>
-          <span className="text-muted-foreground block text-xs">Total</span>
-          <p className="font-semibold text-lg">
-            {order.currency} {order.total}
-          </p>
-        </div>
-      </div>
-
-      {/* line items */}
-      <h4 className="text-sm font-semibold mt-4 mb-2">Line Items</h4>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Product</TableHead>
-            <TableHead className="text-right">Qty</TableHead>
-            <TableHead className="text-right">Unit</TableHead>
-            <TableHead className="text-right">Total</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {order.lines.map(l => (
-            <TableRow key={l.id}>
-              <TableCell className="font-medium">
-                <div className="flex items-center gap-2">
-                  {l.product_image ? (
-                    <img
-                      src={getMediaUrl(l.product_image)}
-                      alt={l.product_name}
-                      className="h-8 w-8 rounded object-cover border"
-                      loading="lazy"
-                      onError={e => {
-                        e.currentTarget.style.display = 'none';
-                      }}
-                    />
-                  ) : null}
-                  <span>{l.product_name}</span>
-                </div>
-              </TableCell>
-              <TableCell className="text-right">{l.quantity}</TableCell>
-              <TableCell className="text-right">{l.unit_price}</TableCell>
-              <TableCell className="text-right">{l.total}</TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-
-      {/* totals */}
-      <div className="text-sm mt-3 space-y-1 text-right">
-        <p>
-          Subtotal: {order.currency} {order.subtotal}
-        </p>
-        <p>
-          Tax: {order.currency} {order.tax_total}
-        </p>
-        <p>
-          Shipping: {order.currency} {order.shipping_total}
-        </p>
-        <p>
-          Discount: -{order.currency} {order.discount_total}
-        </p>
-        <p className="font-bold text-base">
-          Total: {order.currency} {order.total}
-        </p>
-      </div>
-
-      {order.customer_note ? (
-        <p className="text-xs text-muted-foreground mt-3">
-          <strong>Customer note:</strong> {order.customer_note}
-        </p>
-      ) : null}
-
-      {/* quick-status buttons */}
-      <DialogFooter className="mt-4 gap-2">
-        {order.status !== 'COMPLETED' && (
-          <Button
-            size="sm"
-            onClick={() => onStatusChange(order.id, 'COMPLETED')}
-          >
-            <CheckCircle className="h-4 w-4 mr-1" /> Complete
-          </Button>
-        )}
-        {order.status !== 'CANCELLED' && order.status !== 'COMPLETED' && (
-          <Button
-            size="sm"
-            variant="destructive"
-            onClick={() => onStatusChange(order.id, 'CANCELLED')}
-          >
-            <XCircle className="h-4 w-4 mr-1" /> Cancel
-          </Button>
-        )}
-      </DialogFooter>
-    </>
+    <Card>
+      <CardHeader className="p-4 pb-1">
+        <CardTitle className={`text-xs flex items-center gap-1 text-muted-foreground ${tone ?? ''}`}>
+          {icon}{title}
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="p-4 pt-0">
+        <p className={`text-2xl font-bold tracking-tight tabular-nums ${tone ?? ''}`}>{value}</p>
+      </CardContent>
+    </Card>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
+/* MAIN PAGE                                                                 */
+/* ═══════════════════════════════════════════════════════════════════════════ */
 
 export default function OrdersPage() {
-  /* ── state ───────────────────────────────────────────────────────────── */
+  /* ── core state ─── */
   const [orders, setOrders] = useState<OrderListItem[]>([]);
   const [summary, setSummary] = useState<OrderSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -255,58 +139,64 @@ export default function OrdersPage() {
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [brandFilter, setBrandFilter] = useState('all');
-  const [viewOrder, setViewOrder] = useState<OrderDetail | null>(null);
+  const [includeDeleted, setIncludeDeleted] = useState(false);
 
-  /* ── sync state ──────────────────────────────────────────────────────── */
+  /* ── detail / edit state ─── */
+  const [viewOrder, setViewOrder] = useState<OrderDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editForm, setEditForm] = useState<OrderEditRequest | null>(null);
+  const [editProducts, setEditProducts] = useState<ProductListItem[]>([]);
+  const [loadingEditProducts, setLoadingEditProducts] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [mutatingOrder, setMutatingOrder] = useState(false);
+  const [logsDialog, setLogsDialog] = useState(false);
+  const [orderLogs, setOrderLogs] = useState<OrderLogEntry[]>([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+
+  /* ── sync state ─── */
   const [channels, setChannels] = useState<SalesChannel[]>([]);
   const [syncDialog, setSyncDialog] = useState(false);
   const [selectedSyncChannel, setSelectedSyncChannel] = useState('');
   const [syncing, setSyncing] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [previewDialog, setPreviewDialog] = useState(false);
-  const [previewData, setPreviewData] =
-    useState<WooCommerceOrderPreviewResponse | null>(null);
+  const [previewData, setPreviewData] = useState<WooCommerceOrderPreviewResponse | null>(null);
   const [selectedWcOrders, setSelectedWcOrders] = useState<number[]>([]);
   const [syncingSelected, setSyncingSelected] = useState(false);
+
+  /* ── alert state ─── */
   const [successDialog, setSuccessDialog] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [errorDialog, setErrorDialog] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
 
-  const user = useAuthStore(state => state.user);
+  const user = useAuthStore(s => s.user);
   const isAdmin = hasAnyRole(user, ['SUPERADMIN', 'CEO', 'MANAGER']);
+  const deferredSearch = useDeferredValue(search);
 
-  const wooCommerceChannels = useMemo(
-    () => channels.filter(ch => ch.channel_type === 'WOOCOMMERCE'),
-    [channels]
-  );
-
+  /* ── brand/channel maps ─── */
   const channelBrandMap = useMemo(() => {
-    const map = new Map<number, number>();
-    channels.forEach(channel => {
-      map.set(channel.id, channel.brand);
-    });
-    return map;
+    const m = new Map<number, number>();
+    channels.forEach(c => m.set(c.id, c.brand));
+    return m;
   }, [channels]);
 
   const availableBrands = useMemo(() => {
-    const map = new Map<number, string>();
-    channels.forEach(channel => {
-      if (!map.has(channel.brand)) {
-        map.set(channel.brand, channel.brand_name);
-      }
-    });
-    return Array.from(map.entries())
-      .map(([id, name]) => ({ id, name }))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    const m = new Map<number, string>();
+    channels.forEach(c => { if (!m.has(c.brand)) m.set(c.brand, c.brand_name); });
+    return Array.from(m.entries()).map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
   }, [channels]);
 
-  /* ── data fetching ──────────────────────────────────────────────────── */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+  /* DATA FETCHING                                                            */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
       const [ordersRes, summaryRes] = await Promise.all([
-        orderService.getAll({ page_size: 200 }),
+        orderService.getAll({ page_size: 200, include_deleted: includeDeleted }),
         orderService.getSummary(),
       ]);
       setOrders(ordersRes.results ?? ordersRes);
@@ -315,59 +205,65 @@ export default function OrdersPage() {
       console.error('Failed to fetch orders', err);
     }
     try {
-      const channelsRes = await salesChannelService.getAllChannels();
-      setChannels(channelsRes);
+      const ch = await salesChannelService.getAllChannels();
+      setChannels(ch);
     } catch (err) {
       console.error('Failed to fetch channels', err);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [includeDeleted]);
 
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  /* ── filters ─────────────────────────────────────────────────────────── */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+  /* FILTERING                                                                */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+
   const filtered = useMemo(() => {
     let items = orders;
-    if (statusFilter !== 'all')
-      items = items.filter(o => o.status === statusFilter);
-    if (sourceFilter !== 'all')
-      items = items.filter(o => o.source === sourceFilter);
+    if (statusFilter !== 'all') items = items.filter(o => o.status === statusFilter);
+    if (sourceFilter !== 'all') items = items.filter(o => o.source === sourceFilter);
     if (brandFilter !== 'all') {
-      const selectedBrandId = Number(brandFilter);
-      items = items.filter(
-        o => channelBrandMap.get(o.sales_channel) === selectedBrandId
-      );
+      const bid = Number(brandFilter);
+      items = items.filter(o => channelBrandMap.get(o.sales_channel) === bid);
     }
-    if (search) {
-      const q = search.toLowerCase();
-      items = items.filter(
-        o =>
-          o.order_number.toLowerCase().includes(q) ||
-          (o.client_email ?? '').toLowerCase().includes(q) ||
-          (o.client_name ?? '').toLowerCase().includes(q) ||
-          (o.external_order_id ?? '').toLowerCase().includes(q)
+    if (deferredSearch) {
+      const q = deferredSearch.toLowerCase();
+      items = items.filter(o =>
+        o.order_number.toLowerCase().includes(q) ||
+        (o.client_email ?? '').toLowerCase().includes(q) ||
+        (o.client_name ?? '').toLowerCase().includes(q) ||
+        (o.external_order_id ?? '').toLowerCase().includes(q)
       );
     }
     return items;
-  }, [
-    orders,
-    statusFilter,
-    sourceFilter,
-    brandFilter,
-    search,
-    channelBrandMap,
-  ]);
+  }, [orders, statusFilter, sourceFilter, brandFilter, deferredSearch, channelBrandMap]);
 
-  /* ── actions ─────────────────────────────────────────────────────────── */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+  /* DETAIL / EDIT ACTIONS                                                    */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+
   const openDetail = async (id: number) => {
+    setDetailLoading(true);
     try {
       const detail = await orderService.getById(id);
       setViewOrder(detail);
+      setEditMode(false);
+      setEditForm({
+        lines: detail.lines.map((l): OrderEditLineInput => ({
+          id: l.id, product: l.product, product_name: l.product_name,
+          barcode: l.barcode, quantity: l.quantity, unit_price: l.unit_price,
+        })),
+        discount_type: detail.discount_type,
+        discount_value: detail.discount_value,
+        customer_note: detail.customer_note,
+        internal_note: detail.internal_note,
+      });
     } catch (err) {
       console.error('Failed to load order detail', err);
+    } finally {
+      setDetailLoading(false);
     }
   };
 
@@ -381,691 +277,473 @@ export default function OrdersPage() {
     }
   };
 
-  /* ── sync handlers ───────────────────────────────────────────────────── */
+  // Load products when entering edit mode
+  useEffect(() => {
+    if (!editMode || !viewOrder) { setEditProducts([]); return; }
+    const brandId = viewOrder.brand ?? channels.find(c => c.id === viewOrder.sales_channel)?.brand;
+    if (!brandId) { setEditProducts([]); return; }
+
+    setLoadingEditProducts(true);
+    productService.getAllProducts({ brand: brandId, page_size: 500 })
+      .then(setEditProducts)
+      .catch(() => setEditProducts([]))
+      .finally(() => setLoadingEditProducts(false));
+  }, [editMode, viewOrder, channels]);
+
+  /* ── edit form helpers ─── */
+  const updateEditLine = (index: number, key: 'quantity' | 'unit_price', value: string) => {
+    setEditForm(prev => {
+      if (!prev) return prev;
+      const lines = [...prev.lines];
+      const cur = lines[index];
+      if (!cur) return prev;
+      if (key === 'quantity') {
+        const qty = Number(value);
+        lines[index] = { ...cur, quantity: Number.isFinite(qty) && qty > 0 ? qty : 1 };
+      } else {
+        lines[index] = { ...cur, unit_price: value };
+      }
+      return { ...prev, lines };
+    });
+  };
+
+  const updateEditLineField = (index: number, key: 'product_name' | 'barcode', value: string) => {
+    setEditForm(prev => {
+      if (!prev) return prev;
+      const lines = [...prev.lines];
+      const cur = lines[index];
+      if (!cur) return prev;
+      lines[index] = { ...cur, [key]: value };
+      return { ...prev, lines };
+    });
+  };
+
+  const updateEditLineProduct = (index: number, selectedValue: string) => {
+    setEditForm(prev => {
+      if (!prev) return prev;
+      const lines = [...prev.lines];
+      const cur = lines[index];
+      if (!cur) return prev;
+
+      if (selectedValue === '__manual__') {
+        lines[index] = { ...cur, product: null, product_name: cur.product_name ?? '' };
+        return { ...prev, lines };
+      }
+
+      const pid = Number(selectedValue);
+      const p = editProducts.find(x => x.id === pid);
+      if (!p) return prev;
+
+      lines[index] = {
+        ...cur, product: p.id, product_name: p.name,
+        barcode: p.barcode || '', unit_price: p.sales_price || cur.unit_price || '0.00',
+      };
+      return { ...prev, lines };
+    });
+  };
+
+  const handleAddLine = () => {
+    setEditForm(prev => prev ? {
+      ...prev,
+      lines: [...prev.lines, { product: null, product_name: '', barcode: '', quantity: 1, unit_price: '0.00' }],
+    } : prev);
+  };
+
+  const handleRemoveLine = (index: number) => {
+    setEditForm(prev => {
+      if (!prev || prev.lines.length <= 1) return prev;
+      return { ...prev, lines: prev.lines.filter((_, i) => i !== index) };
+    });
+  };
+
+  const handleSaveEdit = async () => {
+    if (!viewOrder || !editForm) return;
+    if (editForm.lines.some(l => !l.product && !(l.product_name ?? '').trim())) {
+      setErrorMessage('Each line must have either a product or a name.'); setErrorDialog(true);
+      return;
+    }
+
+    setSavingEdit(true);
+    try {
+      const payload: OrderEditRequest = {
+        ...editForm,
+        discount_type: (editForm.discount_type ?? 'NONE') as OrderDiscountType,
+        discount_value: editForm.discount_value ?? '0.00',
+        lines: editForm.lines.map(l => ({
+          id: l.id, product: l.product, product_name: l.product_name, barcode: l.barcode,
+          quantity: Number(l.quantity) > 0 ? Number(l.quantity) : 1,
+          unit_price: String(l.unit_price ?? '0'),
+        })),
+      };
+      const updated = await orderService.editOrder(viewOrder.id, payload);
+      setViewOrder(updated);
+      setEditMode(false);
+      await fetchData();
+      setSuccessMessage('Order updated successfully.'); setSuccessDialog(true);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to update order.'); setErrorDialog(true);
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleSoftDelete = async () => {
+    if (!viewOrder) return;
+    setMutatingOrder(true);
+    try {
+      await orderService.softDelete(viewOrder.id, 'Deleted from Orders page');
+      setViewOrder(null); setEditMode(false);
+      await fetchData();
+      setSuccessMessage('Order soft-deleted.'); setSuccessDialog(true);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to delete.'); setErrorDialog(true);
+    } finally { setMutatingOrder(false); }
+  };
+
+  const handleRestoreOrder = async () => {
+    if (!viewOrder) return;
+    setMutatingOrder(true);
+    try {
+      const restored = await orderService.restore(viewOrder.id);
+      setViewOrder(restored);
+      await fetchData();
+      setSuccessMessage('Order restored.'); setSuccessDialog(true);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to restore.'); setErrorDialog(true);
+    } finally { setMutatingOrder(false); }
+  };
+
+  const handleOpenLogs = async () => {
+    if (!viewOrder) return;
+    setLoadingLogs(true); setLogsDialog(true);
+    try {
+      setOrderLogs(await orderService.getLogs(viewOrder.id));
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to load logs.'); setErrorDialog(true);
+      setLogsDialog(false);
+    } finally { setLoadingLogs(false); }
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════ */
+  /* SYNC HANDLERS                                                            */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+
   const handleConfirmSync = async () => {
     if (!selectedSyncChannel) return;
     setSyncing(true);
     try {
-      const res = await orderService.syncFromWooCommerce(
-        Number(selectedSyncChannel)
-      );
-      setSyncDialog(false);
-      setSelectedSyncChannel('');
-      const errPart = res.errors ? `, ${res.errors} errors` : '';
-      setSuccessMessage(
-        `Orders synced! ${res.created} created, ${res.updated} updated${errPart}.`
-      );
-      setSuccessDialog(true);
-      fetchData();
+      const res = await orderService.syncFromWooCommerce(Number(selectedSyncChannel));
+      setSyncDialog(false); setSelectedSyncChannel('');
+      setSuccessMessage(`Synced! ${res.created} created, ${res.updated} updated${res.errors ? `, ${res.errors} errors` : ''}.`);
+      setSuccessDialog(true); fetchData();
     } catch (err) {
       setSyncDialog(false);
-      setErrorMessage(err instanceof Error ? err.message : 'Sync failed.');
-      setErrorDialog(true);
-    } finally {
-      setSyncing(false);
-    }
+      setErrorMessage(err instanceof Error ? err.message : 'Sync failed.'); setErrorDialog(true);
+    } finally { setSyncing(false); }
   };
 
   const handlePreviewOrders = async () => {
     if (!selectedSyncChannel) return;
     setPreviewing(true);
     try {
-      const data = await orderService.previewFromWooCommerce(
-        Number(selectedSyncChannel)
-      );
-      setPreviewData(data);
-      setSelectedWcOrders([]);
-      setSyncDialog(false);
-      setPreviewDialog(true);
+      const data = await orderService.previewFromWooCommerce(Number(selectedSyncChannel));
+      setPreviewData(data); setSelectedWcOrders([]); setSyncDialog(false); setPreviewDialog(true);
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Preview failed.');
-      setErrorDialog(true);
-    } finally {
-      setPreviewing(false);
-    }
+      setErrorMessage(err instanceof Error ? err.message : 'Preview failed.'); setErrorDialog(true);
+    } finally { setPreviewing(false); }
   };
 
-  const toggleWcOrderSelection = (wcId: number) => {
-    setSelectedWcOrders(prev =>
-      prev.includes(wcId) ? prev.filter(id => id !== wcId) : [...prev, wcId]
-    );
-  };
+  const toggleWcOrder = (wcId: number) =>
+    setSelectedWcOrders(p => p.includes(wcId) ? p.filter(x => x !== wcId) : [...p, wcId]);
 
   const handleSyncSelected = async () => {
-    if (!previewData || selectedWcOrders.length === 0) return;
+    if (!previewData || !selectedWcOrders.length) return;
     setSyncingSelected(true);
     try {
-      const res = await orderService.syncSelectedFromWooCommerce(
-        previewData.sales_channel,
-        selectedWcOrders
-      );
+      const res = await orderService.syncSelectedFromWooCommerce(previewData.sales_channel, selectedWcOrders);
       setPreviewDialog(false);
-      const errPart = res.errors ? `, ${res.errors} errors` : '';
-      setSuccessMessage(
-        `${res.created} created, ${res.updated} updated${errPart}.`
-      );
-      setSuccessDialog(true);
-      fetchData();
+      setSuccessMessage(`${res.created} created, ${res.updated} updated${res.errors ? `, ${res.errors} errors` : ''}.`);
+      setSuccessDialog(true); fetchData();
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Sync failed.');
-      setErrorDialog(true);
-    } finally {
-      setSyncingSelected(false);
-    }
+      setErrorMessage(err instanceof Error ? err.message : 'Sync failed.'); setErrorDialog(true);
+    } finally { setSyncingSelected(false); }
   };
 
   const handleSyncAllFromPreview = async () => {
     if (!previewData) return;
     setSyncing(true);
     try {
-      const res = await orderService.syncFromWooCommerce(
-        previewData.sales_channel
-      );
+      const res = await orderService.syncFromWooCommerce(previewData.sales_channel);
       setPreviewDialog(false);
-      const errPart = res.errors ? `, ${res.errors} errors` : '';
-      setSuccessMessage(
-        `All orders synced: ${res.created} created, ${res.updated} updated${errPart}.`
-      );
-      setSuccessDialog(true);
-      fetchData();
+      setSuccessMessage(`All synced: ${res.created} created, ${res.updated} updated.`);
+      setSuccessDialog(true); fetchData();
     } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : 'Sync failed.');
-      setErrorDialog(true);
-    } finally {
-      setSyncing(false);
-    }
+      setErrorMessage(err instanceof Error ? err.message : 'Sync failed.'); setErrorDialog(true);
+    } finally { setSyncing(false); }
   };
 
-  /* ── render ──────────────────────────────────────────────────────────── */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+  /* RENDER                                                                   */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+
   return (
-    <div className="space-y-6 p-6">
-      {/* ── header ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+    <div className="space-y-5 p-4 sm:p-6">
+
+      {/* ── Header ─── */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <IconShoppingCart className="h-6 w-6" /> Orders
+          <h1 className="text-2xl font-bold flex items-center gap-2 tracking-tight">
+            <ShoppingCart className="size-6" /> Orders
           </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            WooCommerce &amp; POS orders synced through the
-            OrderIngestionService
+          <p className="text-muted-foreground text-sm mt-0.5">
+            Manage WooCommerce, POS, and manual orders
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setSyncDialog(true)}
-            className="gap-2"
-          >
-            <RefreshCw className="h-4 w-4" /> Sync with WooCommerce
+          <Button variant="outline" size="sm" onClick={() => setSyncDialog(true)} className="gap-2">
+            <RefreshCw className="size-4" /> Sync WC
           </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={fetchData}
-            disabled={loading}
-          >
-            <IconRefresh
-              className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`}
-            />{' '}
+          <Button variant="outline" size="sm" onClick={fetchData} disabled={loading}>
+            <RefreshCw className={`size-4 mr-1.5 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
         </div>
       </div>
 
-      {/* ── KPI cards ──────────────────────────────────────────────────── */}
+      {/* ── KPIs ─── */}
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-          <Card>
-            <CardHeader className="p-4 pb-1">
-              <CardTitle className="text-xs text-muted-foreground">
-                Total
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 pt-0">
-              <p className="text-2xl font-bold">{summary.total_orders}</p>
-            </CardContent>
-          </Card>
-          <Card className="border-yellow-200">
-            <CardHeader className="p-4 pb-1">
-              <CardTitle className="text-xs text-yellow-600 flex items-center gap-1">
-                <Clock className="h-3 w-3" /> Pending
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 pt-0">
-              <p className="text-2xl font-bold text-yellow-600">
-                {summary.pending}
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border-blue-200">
-            <CardHeader className="p-4 pb-1">
-              <CardTitle className="text-xs text-blue-600 flex items-center gap-1">
-                <Package className="h-3 w-3" /> Processing
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 pt-0">
-              <p className="text-2xl font-bold text-blue-600">
-                {summary.processing}
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border-green-200">
-            <CardHeader className="p-4 pb-1">
-              <CardTitle className="text-xs text-green-600 flex items-center gap-1">
-                <CheckCircle className="h-3 w-3" /> Completed
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 pt-0">
-              <p className="text-2xl font-bold text-green-600">
-                {summary.completed}
-              </p>
-            </CardContent>
-          </Card>
-          <Card className="border-emerald-200">
-            <CardHeader className="p-4 pb-1">
-              <CardTitle className="text-xs text-emerald-600">
-                Revenue
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-4 pt-0">
-              <p className="text-xl font-bold text-emerald-600">
-                TND {summary.revenue}
-              </p>
-            </CardContent>
-          </Card>
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <KpiCard title="Total" value={summary.total_orders} icon={<ShoppingCart className="size-3" />} />
+          <KpiCard title="Pending" value={summary.pending} tone="text-amber-600" icon={<Clock className="size-3" />} />
+          <KpiCard title="Processing" value={summary.processing} tone="text-blue-600" icon={<Package className="size-3" />} />
+          <KpiCard title="Completed" value={summary.completed} tone="text-emerald-600" icon={<CheckCircle className="size-3" />} />
+          <KpiCard title="Revenue" value={`TND ${summary.revenue}`} tone="text-emerald-600" icon={<TrendingUp className="size-3" />} />
         </div>
       )}
 
-      {/* ── filters ────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="relative flex-1 min-w-[200px]">
-          <IconSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <Input
-            placeholder="Search orders…"
-            className="pl-9"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
-        </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Status" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Status</SelectItem>
-            <SelectItem value="PENDING">Pending</SelectItem>
-            <SelectItem value="PROCESSING">Processing</SelectItem>
-            <SelectItem value="COMPLETED">Completed</SelectItem>
-            <SelectItem value="CANCELLED">Cancelled</SelectItem>
-            <SelectItem value="REFUNDED">Refunded</SelectItem>
-          </SelectContent>
-        </Select>
-        <Select value={sourceFilter} onValueChange={setSourceFilter}>
-          <SelectTrigger className="w-[160px]">
-            <SelectValue placeholder="Source" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Sources</SelectItem>
-            <SelectItem value="WOOCOMMERCE">WooCommerce</SelectItem>
-            <SelectItem value="POS">POS</SelectItem>
-            <SelectItem value="MANUAL">Manual</SelectItem>
-          </SelectContent>
-        </Select>
-        {isAdmin && (
-          <Select value={brandFilter} onValueChange={setBrandFilter}>
-            <SelectTrigger className="w-[180px]">
-              <SelectValue placeholder="Brand" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Brands</SelectItem>
-              {availableBrands.map(brand => (
-                <SelectItem key={brand.id} value={String(brand.id)}>
-                  {brand.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
-      </div>
-
-      {/* ── table ──────────────────────────────────────────────────────── */}
+      {/* ── Filters ─── */}
       <Card>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Order #</TableHead>
-              <TableHead>Client</TableHead>
-              <TableHead>Channel</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Payment</TableHead>
-              <TableHead className="text-right">Total</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading && (
-              <TableRow>
-                <TableCell
-                  colSpan={9}
-                  className="text-center py-10 text-muted-foreground"
-                >
-                  Loading…
-                </TableCell>
-              </TableRow>
+        <CardContent className="p-4">
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+            <div className="relative sm:col-span-2 lg:col-span-2">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                placeholder="Search orders, clients, external id..."
+                className="pl-9"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+              />
+            </div>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Status</SelectItem>
+                <SelectItem value="PENDING">Pending</SelectItem>
+                <SelectItem value="PROCESSING">Processing</SelectItem>
+                <SelectItem value="ON_HOLD">On Hold</SelectItem>
+                <SelectItem value="COMPLETED">Completed</SelectItem>
+                <SelectItem value="CANCELLED">Cancelled</SelectItem>
+                <SelectItem value="REFUNDED">Refunded</SelectItem>
+              </SelectContent>
+            </Select>
+            <Select value={sourceFilter} onValueChange={setSourceFilter}>
+              <SelectTrigger><SelectValue placeholder="Source" /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Sources</SelectItem>
+                <SelectItem value="WOOCOMMERCE">WooCommerce</SelectItem>
+                <SelectItem value="POS">POS</SelectItem>
+                <SelectItem value="MANUAL">Manual</SelectItem>
+              </SelectContent>
+            </Select>
+            {isAdmin ? (
+              <Select value={brandFilter} onValueChange={setBrandFilter}>
+                <SelectTrigger><SelectValue placeholder="Brand" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Brands</SelectItem>
+                  {availableBrands.map(b => (
+                    <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : <div />}
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
+            <span className="text-muted-foreground">
+              {loading ? 'Loading...' : `${filtered.length} order${filtered.length !== 1 ? 's' : ''}`}
+            </span>
+            {isAdmin && (
+              <label className="flex items-center gap-2 text-muted-foreground cursor-pointer">
+                <Checkbox
+                  checked={includeDeleted}
+                  onCheckedChange={c => setIncludeDeleted(Boolean(c))}
+                />
+                Include deleted
+              </label>
             )}
-            {!loading && filtered.length === 0 && (
-              <TableRow>
-                <TableCell
-                  colSpan={9}
-                  className="text-center py-10 text-muted-foreground"
-                >
-                  No orders found.
-                </TableCell>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* ── Orders table ─── */}
+      <Card className="overflow-hidden">
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-muted/30">
+                <TableHead className="h-10 text-xs font-semibold">Order #</TableHead>
+                <TableHead className="h-10 text-xs font-semibold">Client</TableHead>
+                <TableHead className="h-10 text-xs font-semibold hidden md:table-cell">Channel</TableHead>
+                <TableHead className="h-10 text-xs font-semibold hidden sm:table-cell">Source</TableHead>
+                <TableHead className="h-10 text-xs font-semibold">Status</TableHead>
+                <TableHead className="h-10 text-xs font-semibold hidden lg:table-cell">Payment</TableHead>
+                <TableHead className="h-10 text-xs font-semibold text-right">Total</TableHead>
+                <TableHead className="h-10 text-xs font-semibold hidden md:table-cell">Date</TableHead>
+                <TableHead className="h-10 text-xs font-semibold w-12 text-center">Actions</TableHead>
               </TableRow>
-            )}
-            {!loading &&
-              filtered.map(o => (
+            </TableHeader>
+            <TableBody>
+              {loading && (
+                <TableRow>
+                  <TableCell colSpan={9} className="py-16">
+                    <div className="flex flex-col items-center gap-2">
+                      <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                      <span className="text-sm text-muted-foreground">Loading orders...</span>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              )}
+              {!loading && filtered.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={9} className="text-center py-16 text-muted-foreground">
+                    No orders found.
+                  </TableCell>
+                </TableRow>
+              )}
+              {!loading && filtered.map(o => (
                 <TableRow
                   key={o.id}
-                  className="cursor-pointer hover:bg-muted/40"
+                  className={`group hover:bg-muted/30 cursor-pointer transition-colors ${o.is_deleted ? 'opacity-50' : ''}`}
                   onClick={() => openDetail(o.id)}
                 >
-                  <TableCell className="font-mono text-xs">
-                    {o.order_number}
-                  </TableCell>
+                  <TableCell className="font-mono text-xs font-semibold">{o.order_number}</TableCell>
                   <TableCell>
-                    {o.client_name ?? o.client_email ?? '—'}
+                    <p className="text-sm font-medium truncate max-w-[140px]">{o.client_name ?? o.client_email ?? '—'}</p>
                   </TableCell>
-                  <TableCell className="text-xs">
-                    {o.sales_channel_name}
-                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground hidden md:table-cell">{o.sales_channel_name}</TableCell>
+                  <TableCell className="hidden sm:table-cell"><SourceBadge source={o.source} /></TableCell>
                   <TableCell>
-                    <SourceBadge source={o.source} />
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <StatusBadge status={o.status} />
+                      {o.is_deleted && <Badge variant="destructive" className="text-xs">Deleted</Badge>}
+                    </div>
                   </TableCell>
-                  <TableCell>
-                    <StatusBadge status={o.status} />
-                  </TableCell>
-                  <TableCell className="text-xs">{o.payment_status}</TableCell>
-                  <TableCell className="text-right font-semibold">
-                    {o.currency} {o.total}
-                  </TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {new Date(o.created_at).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={e => {
-                        e.stopPropagation();
-                        openDetail(o.id);
-                      }}
-                    >
-                      <IconEye className="h-4 w-4" />
-                    </Button>
+                  <TableCell className="hidden lg:table-cell"><PaymentBadge status={o.payment_status} /></TableCell>
+                  <TableCell className="text-right font-semibold tabular-nums">{fmtCurrency(o.currency, o.total)}</TableCell>
+                  <TableCell className="text-xs text-muted-foreground hidden md:table-cell">{fmtDate(o.created_at)}</TableCell>
+                  <TableCell className="text-center" onClick={e => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="size-8">
+                          <MoreVertical className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-48">
+                        <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem onClick={() => openDetail(o.id)} className="gap-2">
+                          <Eye className="size-4" /> View Details
+                        </DropdownMenuItem>
+                        {!o.is_deleted && (
+                          <DropdownMenuItem onClick={() => { openDetail(o.id).then(() => setEditMode(true)); }} className="gap-2">
+                            <Pencil className="size-4" /> Edit Order
+                          </DropdownMenuItem>
+                        )}
+                        <DropdownMenuItem onClick={() => { openDetail(o.id).then(() => { setLogsDialog(true); }); }} className="gap-2">
+                          <History className="size-4" /> View Logs
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        {o.is_deleted ? (
+                          <DropdownMenuItem className="gap-2 text-emerald-700" onClick={async () => {
+                            try { await orderService.restore(o.id); fetchData(); setSuccessMessage('Order restored.'); setSuccessDialog(true); }
+                            catch { setErrorMessage('Failed to restore.'); setErrorDialog(true); }
+                          }}>
+                            <Undo2 className="size-4" /> Restore
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem className="gap-2 text-destructive" onClick={async () => {
+                            try { await orderService.softDelete(o.id, 'Quick delete'); fetchData(); setSuccessMessage('Order deleted.'); setSuccessDialog(true); }
+                            catch { setErrorMessage('Failed to delete.'); setErrorDialog(true); }
+                          }}>
+                            <Trash2 className="size-4" /> Soft Delete
+                          </DropdownMenuItem>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </TableCell>
                 </TableRow>
               ))}
-          </TableBody>
-        </Table>
+            </TableBody>
+          </Table>
+        </div>
       </Card>
 
-      {/* ── detail dialog ──────────────────────────────────────────────── */}
-      <Dialog open={!!viewOrder} onOpenChange={() => setViewOrder(null)}>
-        <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Order {viewOrder?.order_number}</DialogTitle>
-            <DialogDescription>
-              {viewOrder?.external_order_id
-                ? `WC #${viewOrder.external_order_id}`
-                : 'Local order'}
-            </DialogDescription>
-          </DialogHeader>
-          {viewOrder && (
-            <OrderDetailContent
-              order={viewOrder}
-              onStatusChange={handleStatusChange}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* ── Dialogs ─── */}
+      <OrderDetailDialog
+        open={detailLoading || !!viewOrder}
+        onOpenChange={() => { setViewOrder(null); setDetailLoading(false); setEditMode(false); }}
+        order={viewOrder}
+        isDetailLoading={detailLoading}
+        isEditMode={editMode}
+        editForm={editForm}
+        editProducts={editProducts}
+        loadingEditProducts={loadingEditProducts}
+        savingEdit={savingEdit}
+        mutatingOrder={mutatingOrder}
+        onStatusChange={handleStatusChange}
+        onEditModeChange={setEditMode}
+        onUpdateLine={updateEditLine}
+        onUpdateLineField={updateEditLineField}
+        onUpdateLineProduct={updateEditLineProduct}
+        onAddLine={handleAddLine}
+        onRemoveLine={handleRemoveLine}
+        onSaveEdit={handleSaveEdit}
+        onChangeDiscount={(field, val) => {
+          setEditForm(prev => prev ? { ...prev, [field === 'type' ? 'discount_type' : 'discount_value']: val } : prev);
+        }}
+        onChangeNote={(field, val) => {
+          setEditForm(prev => prev ? { ...prev, [field === 'customer' ? 'customer_note' : 'internal_note']: val } : prev);
+        }}
+        onOpenLogs={handleOpenLogs}
+        onDelete={handleSoftDelete}
+        onRestore={handleRestoreOrder}
+      />
 
-      {/* ── Sync with WooCommerce dialog ─────────────────────────────── */}
-      <Dialog open={syncDialog} onOpenChange={setSyncDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <RefreshCw className="h-5 w-5" /> Sync Orders from WooCommerce
-            </DialogTitle>
-            <DialogDescription>
-              Select the WooCommerce sales channel to pull orders from
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {wooCommerceChannels.length === 0 ? (
-              <div className="text-center py-8">
-                <Globe className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p className="text-muted-foreground">
-                  No WooCommerce channels available
-                </p>
-                <p className="text-sm text-muted-foreground mt-2">
-                  Create a WooCommerce sales channel first
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-2">
-                  <Label>Select WooCommerce Store</Label>
-                  <Select
-                    value={selectedSyncChannel}
-                    onValueChange={setSelectedSyncChannel}
-                  >
-                    <SelectTrigger>
-                      <Store className="h-4 w-4 mr-2" />
-                      <SelectValue placeholder="Select a store to sync from" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {wooCommerceChannels.map(ch => (
-                        <SelectItem key={ch.id} value={String(ch.id)}>
-                          <div className="flex flex-col">
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{ch.name}</span>
-                              <Badge variant="outline" className="text-xs">
-                                {ch.brand_name}
-                              </Badge>
-                            </div>
-                            {ch.wc_store_url && (
-                              <span className="text-xs text-muted-foreground">
-                                {ch.wc_store_url}
-                              </span>
-                            )}
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                {selectedSyncChannel && (
-                  <div className="p-4 bg-muted rounded-lg space-y-2">
-                    <div className="flex items-center gap-2">
-                      <Store className="h-4 w-4 text-primary" />
-                      <span className="text-sm font-medium">Store:</span>
-                      <span className="text-sm">
-                        {
-                          wooCommerceChannels.find(
-                            c => String(c.id) === selectedSyncChannel
-                          )?.name
-                        }
-                      </span>
-                    </div>
-                    {wooCommerceChannels.find(
-                      c => String(c.id) === selectedSyncChannel
-                    )?.wc_store_url && (
-                      <div className="flex items-center gap-2">
-                        <Globe className="h-4 w-4 text-primary" />
-                        <span className="text-sm font-medium">URL:</span>
-                        <span className="text-xs text-muted-foreground">
-                          {
-                            wooCommerceChannels.find(
-                              c => String(c.id) === selectedSyncChannel
-                            )?.wc_store_url
-                          }
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-          <div className="flex flex-col gap-3 pt-2 border-t">
-            <div className="flex gap-3">
-              <Button
-                onClick={handlePreviewOrders}
-                disabled={
-                  previewing ||
-                  !selectedSyncChannel ||
-                  wooCommerceChannels.length === 0
-                }
-                variant="outline"
-                className="flex-1 gap-2"
-              >
-                <Eye
-                  className={`h-4 w-4 ${previewing ? 'animate-pulse' : ''}`}
-                />
-                {previewing ? 'Loading…' : 'Preview & Select'}
-              </Button>
-              <Button
-                onClick={handleConfirmSync}
-                disabled={
-                  syncing ||
-                  !selectedSyncChannel ||
-                  wooCommerceChannels.length === 0
-                }
-                className="flex-1 gap-2"
-              >
-                <RefreshCw
-                  className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`}
-                />
-                {syncing ? 'Syncing…' : 'Sync All'}
-              </Button>
-            </div>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setSyncDialog(false);
-                setSelectedSyncChannel('');
-              }}
-              className="w-full"
-            >
-              Cancel
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <SyncDialog
+        open={syncDialog} onOpenChange={setSyncDialog}
+        channels={channels} selectedChannel={selectedSyncChannel}
+        onChannelChange={setSelectedSyncChannel}
+        onPreview={handlePreviewOrders} onSyncAll={handleConfirmSync}
+        isPreviewing={previewing} isSyncing={syncing}
+      />
 
-      {/* ── WooCommerce Orders Preview dialog ────────────────────────── */}
-      <Dialog open={previewDialog} onOpenChange={setPreviewDialog}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Package className="h-5 w-5" />
-              WooCommerce Orders – {previewData?.sales_channel_name}
-            </DialogTitle>
-            <DialogDescription>
-              Select orders to import. Orders marked "Exists" will be updated.
-            </DialogDescription>
-          </DialogHeader>
+      <PreviewDialog
+        open={previewDialog} onOpenChange={setPreviewDialog}
+        data={previewData} selectedIds={selectedWcOrders}
+        onToggleOrder={toggleWcOrder}
+        onSelectAll={() => setSelectedWcOrders(previewData?.orders.map(o => o.wc_id) ?? [])}
+        onDeselectAll={() => setSelectedWcOrders([])}
+        onSyncSelected={handleSyncSelected} onSyncAll={handleSyncAllFromPreview}
+        isSyncingSelected={syncingSelected}
+      />
 
-          {previewData && (
-            <>
-              {/* stats */}
-              <div className="flex gap-4 py-2">
-                <Badge variant="outline" className="gap-1">
-                  Total: {previewData.total_count}
-                </Badge>
-                <Badge variant="default" className="gap-1 bg-green-600">
-                  New: {previewData.new_count}
-                </Badge>
-                <Badge variant="secondary" className="gap-1">
-                  Existing: {previewData.existing_count}
-                </Badge>
-              </div>
+      <LogsDialog
+        open={logsDialog} onOpenChange={setLogsDialog}
+        orderNumber={viewOrder?.order_number} logs={orderLogs} isLoading={loadingLogs}
+      />
 
-              {/* select all / none */}
-              <div className="flex items-center gap-3 py-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() =>
-                    setSelectedWcOrders(previewData.orders.map(o => o.wc_id))
-                  }
-                >
-                  Select All
-                </Button>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setSelectedWcOrders([])}
-                >
-                  Deselect All
-                </Button>
-                <span className="text-sm text-muted-foreground ml-auto">
-                  {selectedWcOrders.length} selected
-                </span>
-              </div>
-
-              {/* orders table */}
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead className="w-10" />
-                    <TableHead>WC #</TableHead>
-                    <TableHead>Customer</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Total</TableHead>
-                    <TableHead>Items</TableHead>
-                    <TableHead>Payment</TableHead>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Local</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {previewData.orders.map(o => (
-                    <TableRow
-                      key={o.wc_id}
-                      className="cursor-pointer hover:bg-muted/40"
-                      onClick={() => toggleWcOrderSelection(o.wc_id)}
-                    >
-                      <TableCell>
-                        <Checkbox
-                          checked={selectedWcOrders.includes(o.wc_id)}
-                          onCheckedChange={() =>
-                            toggleWcOrderSelection(o.wc_id)
-                          }
-                        />
-                      </TableCell>
-                      <TableCell className="font-mono text-xs">
-                        {o.order_number || o.wc_id}
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="text-sm">{o.customer_name || '—'}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {o.customer_email}
-                          </p>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">
-                          {o.status}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">
-                        {o.currency} {o.total}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {o.line_items_count}
-                      </TableCell>
-                      <TableCell className="text-xs">
-                        {o.payment_method_title || '—'}
-                      </TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {o.date_created
-                          ? new Date(o.date_created).toLocaleDateString()
-                          : '—'}
-                      </TableCell>
-                      <TableCell>
-                        {o.exists_locally ? (
-                          <Badge variant="secondary" className="text-xs gap-1">
-                            <Check className="h-3 w-3" /> Exists
-                          </Badge>
-                        ) : (
-                          <Badge
-                            variant="default"
-                            className="text-xs bg-green-600"
-                          >
-                            New
-                          </Badge>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-
-              {/* actions */}
-              <div className="flex gap-3 pt-4 border-t">
-                <Button
-                  onClick={handleSyncSelected}
-                  disabled={syncingSelected || selectedWcOrders.length === 0}
-                  className="gap-2"
-                >
-                  {syncingSelected ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Check className="h-4 w-4" />
-                  )}
-                  Sync Selected ({selectedWcOrders.length})
-                </Button>
-                <Button
-                  onClick={handleSyncAllFromPreview}
-                  disabled={syncingSelected}
-                  variant="outline"
-                  className="gap-2"
-                >
-                  <RefreshCw
-                    className={`h-4 w-4 ${syncingSelected ? 'animate-spin' : ''}`}
-                  />
-                  Sync All
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => setPreviewDialog(false)}
-                  className="ml-auto"
-                >
-                  Cancel
-                </Button>
-              </div>
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-
-      {/* ── success dialog ─────────────────────────────────────────────── */}
-      <AlertDialog open={successDialog} onOpenChange={setSuccessDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="flex items-center gap-2 text-green-600">
-              <CheckCircle className="h-5 w-5" /> Success
-            </AlertDialogTitle>
-            <AlertDialogDescription>{successMessage}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setSuccessDialog(false)}>
-              OK
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* ── error dialog ───────────────────────────────────────────────── */}
-      <AlertDialog open={errorDialog} onOpenChange={setErrorDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-red-600">Error</AlertDialogTitle>
-            <AlertDialogDescription>{errorMessage}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogAction onClick={() => setErrorDialog(false)}>
-              OK
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <MessageAlert open={successDialog} onOpenChange={setSuccessDialog} type="success" message={successMessage} />
+      <MessageAlert open={errorDialog} onOpenChange={setErrorDialog} type="error" message={errorMessage} />
     </div>
   );
 }

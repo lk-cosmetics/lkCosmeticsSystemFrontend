@@ -924,8 +924,8 @@ export interface MovementSummary {
 
 export interface Client {
   id: number;
-  company: number;
-  company_name: string;
+  company: number | null;
+  company_name: string | null;
   brand: number | null;
   brand_name: string | null;
   reseller: number | null;
@@ -934,7 +934,7 @@ export interface Client {
   first_name: string;
   last_name: string;
   full_name: string;
-  phone: string;
+  phone: string | null;
   address: string;
   city: string;
   state: string;
@@ -956,11 +956,11 @@ export interface Client {
 }
 
 export interface CreateClientRequest {
-  company: number;
+  company?: number | null;
   email: string;
   first_name?: string;
   last_name?: string;
-  phone?: string;
+  phone?: string | null;
   address?: string;
   city?: string;
   state?: string;
@@ -995,6 +995,8 @@ export type OrderSource = 'WOOCOMMERCE' | 'POS' | 'MANUAL';
 
 export type PaymentStatus = 'UNPAID' | 'PAID' | 'PARTIAL' | 'REFUNDED';
 
+export type OrderDiscountType = 'NONE' | 'FIXED' | 'PERCENTAGE';
+
 export interface OrderLine {
   id: number;
   product: number | null;
@@ -1007,6 +1009,7 @@ export interface OrderLine {
   subtotal: string;
   tax: string;
   total: string;
+  is_deleted?: boolean;
 }
 
 export interface OrderListItem {
@@ -1017,7 +1020,10 @@ export interface OrderListItem {
   company_name: string;
   sales_channel: number;
   sales_channel_name: string;
+  brand: number | null;
+  brand_name: string | null;
   client: number | null;
+  client_id: number | null;
   client_email: string | null;
   client_name: string | null;
   status: OrderStatus;
@@ -1028,8 +1034,11 @@ export interface OrderListItem {
   subtotal: string;
   tax_total: string;
   shipping_total: string;
+  discount_type: OrderDiscountType;
+  discount_value: string;
   discount_total: string;
   total: string;
+  is_deleted: boolean;
   line_count: number;
   created_at: string;
   updated_at: string;
@@ -1046,6 +1055,34 @@ export interface OrderDetail extends OrderListItem {
   wc_date_modified: string | null;
   created_by: number | null;
   created_by_name: string | null;
+  deleted_at: string | null;
+  deleted_by: number | null;
+}
+
+export interface OrderEditLineInput {
+  id?: number;
+  product?: number | null;
+  product_name?: string;
+  barcode?: string;
+  quantity: number;
+  unit_price: string;
+}
+
+export interface OrderEditRequest {
+  lines: OrderEditLineInput[];
+  discount_type?: OrderDiscountType;
+  discount_value?: string;
+  customer_note?: string;
+  internal_note?: string;
+}
+
+export interface OrderLogEntry {
+  id: number;
+  action: string;
+  user: number | null;
+  user_name: string | null;
+  details: Record<string, unknown>;
+  created_at: string;
 }
 
 export interface POSLineItemInput {
@@ -1062,6 +1099,7 @@ export interface POSLineItemInput {
 
 export interface POSOrderCreateRequest {
   sales_channel: number;
+  client?: number | null;
   billing?: {
     first_name?: string;
     last_name?: string;

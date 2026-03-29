@@ -3,11 +3,12 @@
  */
 
 import { apiClient } from './axios';
-import type { Client, CreateClientRequest } from '@/types';
+import type { Client, CreateClientRequest, PaginatedResponse } from '@/types';
 
 export interface ClientListParams {
   company?: number;
   source?: string;
+  scope?: string;
   sales_channel?: number;
   is_active?: boolean;
   search?: string;
@@ -18,7 +19,10 @@ export interface ClientListParams {
 
 export const clientService = {
   async getAll(params?: ClientListParams) {
-    const { data } = await apiClient.get('/api/v1/clients/', { params });
+    const { data } = await apiClient.get<PaginatedResponse<Client> | Client[]>(
+      '/api/v1/clients/',
+      { params }
+    );
     return data;
   },
 
@@ -42,5 +46,13 @@ export const clientService = {
 
   async delete(id: number) {
     await apiClient.delete(`/api/v1/clients/${id}/`);
+  },
+
+  async setBlocked(id: number, is_blocked: boolean) {
+    const { data } = await apiClient.patch<Client>(
+      `/api/v1/clients/${id}/block/`,
+      { is_blocked }
+    );
+    return data;
   },
 };

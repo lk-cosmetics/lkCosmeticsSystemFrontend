@@ -5,6 +5,8 @@
 import { apiClient } from './axios';
 import type {
   OrderDetail,
+  OrderEditRequest,
+  OrderLogEntry,
   POSOrderCreateRequest,
   OrderSummary,
   OrderStatus,
@@ -21,6 +23,7 @@ export interface OrderListParams {
   ordering?: string;
   page?: number;
   page_size?: number;
+  include_deleted?: boolean;
 }
 
 export interface OrderSyncResponse {
@@ -81,6 +84,40 @@ export const orderService = {
     const { data } = await apiClient.patch<OrderDetail>(
       `/api/v1/orders/${id}/status/`,
       { status, internal_note: internalNote ?? '' }
+    );
+    return data;
+  },
+
+  /** Edit line items, discount, and notes. */
+  async editOrder(id: number, payload: OrderEditRequest) {
+    const { data } = await apiClient.patch<OrderDetail>(
+      `/api/v1/orders/${id}/edit/`,
+      payload
+    );
+    return data;
+  },
+
+  /** Soft-delete order. */
+  async softDelete(id: number, reason?: string) {
+    const { data } = await apiClient.post<{ detail: string }>(
+      `/api/v1/orders/${id}/soft-delete/`,
+      { reason: reason ?? '' }
+    );
+    return data;
+  },
+
+  /** Restore soft-deleted order. */
+  async restore(id: number) {
+    const { data } = await apiClient.post<OrderDetail>(
+      `/api/v1/orders/${id}/restore/`
+    );
+    return data;
+  },
+
+  /** Fetch audit logs for one order. */
+  async getLogs(id: number) {
+    const { data } = await apiClient.get<OrderLogEntry[]>(
+      `/api/v1/orders/${id}/logs/`
     );
     return data;
   },

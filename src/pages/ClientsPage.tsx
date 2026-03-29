@@ -1,7 +1,7 @@
 /**
  * ClientsPage – Lists all auto-registered and manually added clients.
  */
-import { useEffect, useMemo, useState, useCallback } from 'react';
+import { useMemo, useState } from 'react';
 import {
   IconUsers,
   IconSearch,
@@ -50,8 +50,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-import { clientService } from '@/services/client.service';
-import { useBrands } from '@/hooks/queries';
+import { useBrands, useClients, useCreateClient, useDeleteClient } from '@/hooks/queries';
 import type { Client, CreateClientRequest } from '@/types';
 
 /* ─── helpers ─── */
@@ -93,10 +92,6 @@ function ClientDetailContent({ client }: Readonly<{ client: Client }>) {
       <div>
         <span className="text-muted-foreground block text-xs">Source</span>
         <SourceBadge source={client.source} />
-      </div>
-      <div>
-        <span className="text-muted-foreground block text-xs">Company</span>
-        <p>{client.company_name ?? '—'}</p>
       </div>
       <div>
         <span className="text-muted-foreground block text-xs">Brand</span>
@@ -177,8 +172,6 @@ function ClientDetailContent({ client }: Readonly<{ client: Client }>) {
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
 export default function ClientsPage() {
-  const [clients, setClients] = useState<Client[]>([]);
-  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [sourceFilter, setSourceFilter] = useState('all');
   const [blockedFilter, setBlockedFilter] = useState('all');
@@ -188,80 +181,78 @@ export default function ClientsPage() {
   // Add dialog
   const [addOpen, setAddOpen] = useState(false);
   const [addForm, setAddForm] = useState<Partial<CreateClientRequest>>({});
-  const [addLoading, setAddLoading] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
 
   // Delete dialog
   const [deleteTarget, setDeleteTarget] = useState<Client | null>(null);
 
-  // Brands data
+  // Query hooks
   const { data: brands = [] } = useBrands();
+  const { data: clientsResponse, isLoading, error, refetch } = useClients({ page_size: 500 });
+  const createClientMutation = useCreateClient();
+  const deleteClientMutation = useDeleteClient();
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await clientService.getAll({ page_size: 500 });
-      setClients(res.results ?? res);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchData();
-  }, [fetchData]);
+  // Extract clients from paginated response
+  const clients = useMemo(() => {
+    if (!clientsResponse) return [];
+    return Array.isArray(clientsResponse) ? clientsResponse : (clientsResponse.results ?? []);
+  }, [clientsResponse]);
 
   const filtered = useMemo(() => {
-    let items = clients;
+    let items: Client[] = clients;
     if (sourceFilter !== 'all')
-      items = items.filter(c => c.source === sourceFilter);
+      items = items.filter((c: Client) => c.source === sourceFilter);
     if (blockedFilter === 'blocked')
-      items = items.filter(c => c.is_blocked);
+      items = items.filter((c: Client) => c.is_blocked);
     else if (blockedFilter === 'active')
-      items = items.filter(c => !c.is_blocked);
+      items = items.filter((c: Client) => !c.is_blocked);
     if (brandFilter !== 'all')
-      items = items.filter(c => String(c.brand) === brandFilter);
+      items = items.filter((c: Client) => String(c.brand) === brandFilter);
     if (search) {
       const q = search.toLowerCase();
       items = items.filter(
-        c =>
+        (c: Client) =>
           c.email.toLowerCase().includes(q) ||
           c.full_name.toLowerCase().includes(q) ||
-          c.phone.toLowerCase().includes(q)
+          (c.phone ?? '').toLowerCase().includes(q)
       );
     }
     return items;
   }, [clients, sourceFilter, blockedFilter, brandFilter, search]);
 
   const blockedCount = useMemo(
-    () => clients.filter(c => c.is_blocked).length,
+    () => clients.filter((c: Client) => c.is_blocked).length,
     [clients]
   );
 
   const handleAdd = async () => {
-    if (!addForm.email || !addForm.company) return;
-    setAddLoading(true);
+    if (!addForm.email) return;
+    setAddError(null);
     try {
-      await clientService.create(addForm as CreateClientRequest);
+      await createClientMutation.mutateAsync(addForm as CreateClientRequest);
       setAddOpen(false);
       setAddForm({});
-      fetchData();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setAddLoading(false);
+      setAddError(null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to add client';
+      // Provide user-friendly error messages
+      if (message.includes('phone')) {
+        setAddError('This phone number is already registered. Please use a different phone.');
+      } else if (message.includes('email')) {
+        setAddError('This email is already registered. Please use a different email.');
+      } else {
+        setAddError(message);
+      }
     }
   };
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await clientService.delete(deleteTarget.id);
+      await deleteClientMutation.mutateAsync(deleteTarget.id);
       setDeleteTarget(null);
-      fetchData();
     } catch (err) {
-      console.error(err);
+      console.error('Failed to delete client:', err);
     }
   };
 
@@ -284,16 +275,40 @@ export default function ClientsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={fetchData}
-            disabled={loading}
+            onClick={() => refetch()}
+            disabled={isLoading}
           >
             <IconRefresh
-              className={`h-4 w-4 mr-1 ${loading ? 'animate-spin' : ''}`}
+              className={`h-4 w-4 mr-1 ${isLoading ? 'animate-spin' : ''}`}
             />{' '}
             Refresh
           </Button>
         </div>
       </div>
+
+      {/* error alert */}
+      {error && (
+        <Card className="bg-red-50 border-red-200">
+          <CardContent className="p-4">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="font-semibold text-red-900 mb-1">Failed to Load Clients</h3>
+                <p className="text-sm text-red-700">
+                  {error instanceof Error ? error.message : String(error)}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                onClick={() => refetch()}
+                disabled={isLoading}
+                className="whitespace-nowrap"
+              >
+                {isLoading ? 'Retrying…' : 'Retry'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* KPI */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -315,7 +330,7 @@ export default function ClientsPage() {
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <p className="text-2xl font-bold text-indigo-600">
-              {clients.filter(c => c.source === 'WOOCOMMERCE').length}
+              {clients.filter((c: Client) => c.source === 'WOOCOMMERCE').length}
             </p>
           </CardContent>
         </Card>
@@ -325,7 +340,7 @@ export default function ClientsPage() {
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <p className="text-2xl font-bold text-teal-600">
-              {clients.filter(c => c.source === 'POS').length}
+              {clients.filter((c: Client) => c.source === 'POS').length}
             </p>
           </CardContent>
         </Card>
@@ -335,7 +350,7 @@ export default function ClientsPage() {
           </CardHeader>
           <CardContent className="p-4 pt-0">
             <p className="text-2xl font-bold text-gray-600">
-              {clients.filter(c => c.source === 'MANUAL').length}
+              {clients.filter((c: Client) => c.source === 'MANUAL').length}
             </p>
           </CardContent>
         </Card>
@@ -406,7 +421,6 @@ export default function ClientsPage() {
               <TableHead>Phone</TableHead>
               <TableHead>Brand</TableHead>
               <TableHead>Reseller</TableHead>
-              <TableHead>Company</TableHead>
               <TableHead>City</TableHead>
               <TableHead>Country</TableHead>
               <TableHead>Channel</TableHead>
@@ -420,35 +434,44 @@ export default function ClientsPage() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && (
+            {error && (
               <TableRow>
                 <TableCell
-                  colSpan={16}
+                  colSpan={15}
+                  className="text-center py-10 text-muted-foreground"
+                >
+                  Unable to load clients. Please check the error message above and try again.
+                </TableCell>
+              </TableRow>
+            )}
+            {!error && isLoading && (
+              <TableRow>
+                <TableCell
+                  colSpan={15}
                   className="text-center py-10 text-muted-foreground"
                 >
                   Loading…
                 </TableCell>
               </TableRow>
             )}
-            {!loading && filtered.length === 0 && (
+            {!error && !isLoading && filtered.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={16}
+                  colSpan={15}
                   className="text-center py-10 text-muted-foreground"
                 >
                   No clients found.
                 </TableCell>
               </TableRow>
             )}
-            {!loading &&
-              filtered.map(c => (
+            {!error && !isLoading &&
+              filtered.map((c: Client) => (
                 <TableRow key={c.id} className={c.is_blocked ? 'opacity-60' : ''}>
                   <TableCell className="font-medium whitespace-nowrap">{c.email}</TableCell>
                   <TableCell className="whitespace-nowrap">{c.full_name}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{c.phone || '—'}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{c.brand_name ?? '—'}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{c.reseller_name ?? '—'}</TableCell>
-                  <TableCell className="text-xs whitespace-nowrap">{c.company_name ?? '—'}</TableCell>
                   <TableCell className="text-xs">{c.city || '—'}</TableCell>
                   <TableCell className="text-xs">{c.country || '—'}</TableCell>
                   <TableCell className="text-xs whitespace-nowrap">{c.sales_channel_name ?? '—'}</TableCell>
@@ -502,7 +525,12 @@ export default function ClientsPage() {
       </Dialog>
 
       {/* add dialog */}
-      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+      <Dialog open={addOpen} onOpenChange={(v) => {
+        setAddOpen(v);
+        if (!v) {
+          setAddError(null);
+        }
+      }}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Client</DialogTitle>
@@ -510,6 +538,11 @@ export default function ClientsPage() {
               Manually register a new client
             </DialogDescription>
           </DialogHeader>
+          {addError && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+              {addError}
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Label>Email *</Label>
@@ -589,8 +622,8 @@ export default function ClientsPage() {
             <Button variant="outline" onClick={() => setAddOpen(false)}>
               Cancel
             </Button>
-            <Button onClick={handleAdd} disabled={addLoading || !addForm.email}>
-              {addLoading ? 'Saving…' : 'Save Client'}
+            <Button onClick={handleAdd} disabled={createClientMutation.isPending || !addForm.email}>
+              {createClientMutation.isPending ? 'Saving…' : 'Save Client'}
             </Button>
           </DialogFooter>
         </DialogContent>

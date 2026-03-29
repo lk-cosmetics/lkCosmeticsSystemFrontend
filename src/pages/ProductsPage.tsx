@@ -64,6 +64,7 @@ import {
   useHardDeleteProduct,
   useBulkDeleteProducts,
   useBulkHardDeleteProducts,
+  useBulkRestoreProducts,
   useCreateProduct,
   usePartialUpdateProduct,
   useRestoreProduct,
@@ -647,6 +648,7 @@ export default function ProductsPage() {
   const hardDeleteMut = useHardDeleteProduct();
   const bulkDeleteMut = useBulkDeleteProducts();
   const bulkHardDeleteMut = useBulkHardDeleteProducts();
+  const bulkRestoreMut = useBulkRestoreProducts();
   const createMut = useCreateProduct();
   const updateMut = usePartialUpdateProduct();
   const restoreMut = useRestoreProduct();
@@ -686,9 +688,24 @@ export default function ProductsPage() {
 
   // ── Bulk selection ──
   const [selIds, setSelIds] = useState<number[]>([]);
-  const [bulkDelOpen, setBulkDelOpen] = useState(false);
+  const [bulkActionOpen, setBulkActionOpen] = useState(false);
+  const [bulkActionType, setBulkActionType] = useState<'soft-delete' | 'hard-delete' | 'restore' | null>(null);
   const selMode = selIds.length > 0;
   const selSet = useMemo(() => new Set(selIds), [selIds]);
+  const selectedProducts = useMemo(
+    () => products.filter(p => selSet.has(p.id)),
+    [products, selSet],
+  );
+  const selectedActiveIds = useMemo(
+    () => selectedProducts.filter(p => !p.is_deleted).map(p => p.id),
+    [selectedProducts],
+  );
+  const selectedDeletedIds = useMemo(
+    () => selectedProducts.filter(p => p.is_deleted).map(p => p.id),
+    [selectedProducts],
+  );
+  const hasSelectedActive = selectedActiveIds.length > 0;
+  const hasSelectedDeleted = selectedDeletedIds.length > 0;
 
   // ── Sync ──
   const [syncOpen, setSyncOpen] = useState(false);
@@ -960,28 +977,49 @@ export default function ProductsPage() {
     setSelIds(prev => prev.filter(id => products.some(p => p.id === id)));
   }, [products]);
 
-  const confirmBulkDel = async () => {
-    if (selIds.length === 0) {
-      setBulkDelOpen(false);
+  const openBulkActionConfirm = useCallback((action: 'soft-delete' | 'hard-delete' | 'restore') => {
+    setBulkActionType(action);
+    setBulkActionOpen(true);
+  }, []);
+
+  const confirmBulkAction = async () => {
+    if (!bulkActionType) {
+      setBulkActionOpen(false);
+      return;
+    }
+
+    const targetIds = bulkActionType === 'soft-delete'
+      ? selectedActiveIds
+      : selectedDeletedIds;
+
+    if (targetIds.length === 0) {
+      setBulkActionOpen(false);
       return;
     }
 
     try {
-      if (onlyDeleted) {
-        const r = await bulkHardDeleteMut.mutateAsync(selIds);
+      if (bulkActionType === 'hard-delete') {
+        const r = await bulkHardDeleteMut.mutateAsync(targetIds);
         setToast({
           type: r.errorCount > 0 ? 'error' : 'success',
           msg: `Permanently deleted ${r.successCount}${r.errorCount ? `, ${r.errorCount} failed` : ''}`,
         });
+      } else if (bulkActionType === 'restore') {
+        const r = await bulkRestoreMut.mutateAsync(targetIds);
+        setToast({
+          type: r.errorCount > 0 ? 'error' : 'success',
+          msg: `Restored ${r.successCount}${r.errorCount ? `, ${r.errorCount} failed` : ''}`,
+        });
       } else {
-        const r = await bulkDeleteMut.mutateAsync(selIds);
+        const r = await bulkDeleteMut.mutateAsync(targetIds);
         setToast({ type: 'success', msg: `Deleted ${r.successCount}${r.errorCount ? `, ${r.errorCount} failed` : ''}` });
       }
       setSelIds([]);
-      setBulkDelOpen(false);
+      setBulkActionOpen(false);
+      setBulkActionType(null);
     } catch (e) {
       setToast({ type: 'error', msg: extractErr(e) });
-      setBulkDelOpen(false);
+      setBulkActionOpen(false);
     }
   };
 
@@ -1312,9 +1350,39 @@ export default function ProductsPage() {
           <span className="font-medium">{selIds.length} selected</span>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={selectAll}>All</Button>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setSelIds([])}>Clear</Button>
-          <Button size="sm" variant="destructive" className="h-7 text-xs gap-1 ml-auto" onClick={() => setBulkDelOpen(true)}>
-            <Trash2 className="size-3" /> {onlyDeleted ? 'Delete Permanently' : 'Delete'}
-          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="destructive" className="h-7 text-xs gap-1 ml-auto">
+                <Trash2 className="size-3" /> Group Actions
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              {hasSelectedActive && (
+                <DropdownMenuItem
+                  className="gap-2 text-destructive focus:text-destructive"
+                  onClick={() => openBulkActionConfirm('soft-delete')}
+                >
+                  <Trash2 className="size-4" /> Delete
+                </DropdownMenuItem>
+              )}
+              {hasSelectedDeleted && (
+                <DropdownMenuItem
+                  className="gap-2 text-green-600 focus:text-green-600"
+                  onClick={() => openBulkActionConfirm('restore')}
+                >
+                  <RotateCcw className="size-4" /> Restore
+                </DropdownMenuItem>
+              )}
+              {hasSelectedDeleted && (
+                <DropdownMenuItem
+                  className="gap-2 text-destructive focus:text-destructive"
+                  onClick={() => openBulkActionConfirm('hard-delete')}
+                >
+                  <Trash2 className="size-4" /> Delete Permanently
+                </DropdownMenuItem>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
 
@@ -1600,27 +1668,45 @@ export default function ProductsPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Bulk Delete */}
-      <AlertDialog open={bulkDelOpen} onOpenChange={setBulkDelOpen}>
+      {/* Bulk Group Action */}
+      <AlertDialog open={bulkActionOpen} onOpenChange={setBulkActionOpen}>
         <AlertDialogContent className="max-w-[400px]">
           <AlertDialogHeader>
             <AlertDialogTitle className="flex items-center gap-2">
-              <Trash2 className="size-5 text-destructive" /> {onlyDeleted ? 'Permanently Delete' : 'Delete'} {selIds.length} Products
+              {bulkActionType === 'restore' ? (
+                <RotateCcw className="size-5 text-green-600" />
+              ) : (
+                <Trash2 className="size-5 text-destructive" />
+              )}
+              {bulkActionType === 'hard-delete'
+                ? `Permanently Delete ${selectedDeletedIds.length} Products`
+                : bulkActionType === 'restore'
+                  ? `Restore ${selectedDeletedIds.length} Products`
+                  : `Delete ${selectedActiveIds.length} Products`}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {onlyDeleted
+              {bulkActionType === 'hard-delete'
                 ? 'All selected deleted products will be permanently removed from database. This cannot be undone.'
-                : 'All selected products will be soft-deleted. You can restore them individually afterwards.'}
+                : bulkActionType === 'restore'
+                  ? 'All selected deleted products will be restored and available again.'
+                  : 'All selected active products will be soft-deleted. You can restore them later.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              onClick={confirmBulkDel}
-              disabled={bulkDeleteMut.isPending || bulkHardDeleteMut.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5"
+              onClick={confirmBulkAction}
+              disabled={bulkDeleteMut.isPending || bulkHardDeleteMut.isPending || bulkRestoreMut.isPending}
+              className={bulkActionType === 'restore'
+                ? 'bg-green-600 text-white hover:bg-green-700 gap-1.5'
+                : 'bg-destructive text-destructive-foreground hover:bg-destructive/90 gap-1.5'}
             >
-              <Trash2 className="size-4" /> {onlyDeleted ? 'Delete Permanently' : 'Delete All'}
+              {bulkActionType === 'restore' ? <RotateCcw className="size-4" /> : <Trash2 className="size-4" />}
+              {bulkActionType === 'hard-delete'
+                ? 'Delete Permanently'
+                : bulkActionType === 'restore'
+                  ? 'Restore'
+                  : 'Delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

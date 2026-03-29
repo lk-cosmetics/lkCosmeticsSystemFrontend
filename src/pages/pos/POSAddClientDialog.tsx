@@ -3,7 +3,7 @@
  * Minimal fields: first_name, last_name, phone, email.
  * Fast submit → returns the newly created Client.
  */
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Loader2, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -23,6 +23,7 @@ interface POSAddClientDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   channel: SalesChannel | undefined;
+  editingClient?: Client | null;
   onClientCreated: (client: Client) => void;
 }
 
@@ -30,6 +31,7 @@ export function POSAddClientDialog({
   open,
   onOpenChange,
   channel,
+  editingClient,
   onClientCreated,
 }: POSAddClientDialogProps) {
   const [form, setForm] = useState({
@@ -46,6 +48,22 @@ export function POSAddClientDialog({
     setError('');
   }, []);
 
+  const isEditing = !!editingClient;
+
+  const populateFromClient = useCallback((client: Client | null | undefined) => {
+    if (!client) {
+      resetForm();
+      return;
+    }
+    setForm({
+      first_name: client.first_name ?? '',
+      last_name: client.last_name ?? '',
+      phone: client.phone ?? '',
+      email: client.email ?? '',
+    });
+    setError('');
+  }, [resetForm]);
+
   const handleClose = useCallback(
     (v: boolean) => {
       if (!v) resetForm();
@@ -54,7 +72,15 @@ export function POSAddClientDialog({
     [onOpenChange, resetForm],
   );
 
+  // Sync form with the selected client when opening in edit mode.
+  useEffect(() => {
+    if (open) {
+      populateFromClient(editingClient);
+    }
+  }, [open, editingClient, populateFromClient]);
+
   const handleSubmit = useCallback(async () => {
+    // ── Validation ──────────────────────────────────────────────────
     if (!form.first_name.trim() && !form.phone.trim()) {
       setError('At least a name or phone number is required.');
       return;
@@ -63,29 +89,62 @@ export function POSAddClientDialog({
       setError('No sales channel selected.');
       return;
     }
-
     setSaving(true);
     setError('');
     try {
-      const created = await clientService.create({
-        company: channel.company_id,
+      // ── Pre-check: if phone exists, return the existing client ────
+      // This avoids a 400 error and gives a better UX: the cashier
+      // doesn't need to close the dialog and manually search.
+      if (!editingClient && form.phone.trim()) {
+        const existing = await clientService.getAll({
+          search: form.phone.trim(),
+          page_size: 5,
+        });
+        const results = Array.isArray(existing) ? existing : existing.results;
+        const match = Array.isArray(results)
+          ? results.find((c: Client) => c.phone === form.phone.trim())
+          : null;
+        if (match) {
+          // Phone already registered — select that client directly
+          onClientCreated(match);
+          handleClose(false);
+          return;
+        }
+      }
+
+      const payload = {
         first_name: form.first_name.trim(),
         last_name: form.last_name.trim(),
-        phone: form.phone.trim(),
+        phone: form.phone.trim() || null,
         email: form.email.trim() || `pos_${Date.now()}@placeholder.local`,
-        source: 'POS',
-        sales_channel: channel.id,
-      });
-      onClientCreated(created);
+        source: 'POS' as const,
+        brand: channel.brand,
+      };
+
+      const saved = editingClient
+        ? await clientService.update(editingClient.id, payload)
+        : await clientService.create(payload);
+
+      onClientCreated(saved);
       handleClose(false);
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : 'Failed to create client';
-      setError(msg);
+      // Handle API error responses with field-specific errors
+      if (err instanceof Error) {
+        const message = err.message;
+        if (message.includes('phone') || message.includes('A client with this phone already exists')) {
+          setError('This phone number is already registered. Please use a different phone number or select an existing client.');
+        } else if (message.includes('email') || message.includes('A client with this email already exists')) {
+          setError('This email is already registered. Please use a different email.');
+        } else {
+          setError(message);
+        }
+      } else {
+        setError('Failed to create or update client');
+      }
     } finally {
       setSaving(false);
     }
-  }, [form, channel, onClientCreated, handleClose]);
+  }, [form, channel, editingClient, onClientCreated, handleClose]);
 
   const updateField = (field: keyof typeof form, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }));
@@ -96,10 +155,12 @@ export function POSAddClientDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <UserPlus className="size-4" />
-            Add New Client
+            {isEditing ? 'Edit Client' : 'Add New Client'}
           </DialogTitle>
           <DialogDescription>
-            Quick client registration for this order.
+            {isEditing
+              ? 'Update client details for faster checkout.'
+              : 'Quick client registration for this order.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -170,7 +231,7 @@ export function POSAddClientDialog({
             ) : (
               <>
                 <UserPlus className="size-4" />
-                Add Client
+                {isEditing ? 'Save Changes' : 'Add Client'}
               </>
             )}
           </Button>
@@ -179,3 +240,4 @@ export function POSAddClientDialog({
     </Dialog>
   );
 }
+
