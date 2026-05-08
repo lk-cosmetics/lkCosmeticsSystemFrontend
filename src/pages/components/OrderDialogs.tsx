@@ -14,6 +14,7 @@ import {
   Trash2, Plus, Loader2, Pencil, Store, Globe, Check,
   Package, AlertCircle, TrendingUp, Search, ChevronDown,
   CreditCard, Calendar, User, MapPin, Percent, MessageSquare,
+  Phone, MessageCircleMore, CalendarClock, Ban, ThumbsUp, Clock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,7 +40,6 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { getMediaUrl } from '@/utils/helpers';
@@ -159,6 +159,24 @@ const STATUS_MAP: Record<string, { bg: string; text: string; dot: string; label:
   REFUNDED:   { bg: 'bg-purple-50',  text: 'text-purple-700',  dot: 'bg-purple-500',  label: 'Refunded' },
   FAILED:     { bg: 'bg-gray-100',   text: 'text-gray-600',    dot: 'bg-gray-400',    label: 'Failed' },
 };
+
+const OUTCOME_MAP: Record<string, { bg: string; text: string; icon: typeof CheckCircle; label: string }> = {
+  NONE:      { bg: 'bg-gray-50',    text: 'text-gray-500',    icon: Clock,         label: 'Awaiting' },
+  CONFIRMED: { bg: 'bg-emerald-50', text: 'text-emerald-700', icon: ThumbsUp,      label: 'Confirmed' },
+  DELAYED:   { bg: 'bg-amber-50',   text: 'text-amber-700',   icon: CalendarClock, label: 'Delayed' },
+  CANCELLED: { bg: 'bg-red-50',     text: 'text-red-700',     icon: Ban,           label: 'Cancelled' },
+};
+
+function OutcomePill({ outcome }: { outcome: string }) {
+  const o = OUTCOME_MAP[outcome] ?? OUTCOME_MAP.NONE!;
+  const Icon = o.icon;
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${o.bg} ${o.text}`}>
+      <Icon className="size-3" />
+      {o.label}
+    </span>
+  );
+}
 
 function StatusPill({ status }: { status: string }) {
   const s = STATUS_MAP[status] ?? STATUS_MAP.FAILED!;
@@ -318,10 +336,13 @@ function ProductSearchSelect({
 /* ═══════════════════════════════════════════════════════════════════════════ */
 
 function OrderViewMode({
-  order, onStatusChange, isLoading,
+  order, onStatusChange, onConfirm, onOpenDelay, onOpenCancel, isLoading,
 }: Readonly<{
   order: OrderDetail;
   onStatusChange: (id: number, status: OrderStatus) => void;
+  onConfirm: () => void;
+  onOpenDelay: () => void;
+  onOpenCancel: () => void;
   isLoading?: boolean;
 }>) {
   const totalsRows = useMemo(() => [
@@ -493,8 +514,9 @@ function OrderViewMode({
           )}
         </Tabs>
 
-        {/* Right sidebar: Totals + Actions */}
+        {/* Right sidebar: Totals + Contact + Outcome + Actions */}
         <div className="space-y-4">
+          {/* Totals */}
           <div className="rounded-lg border p-4 space-y-2">
             <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Summary</h4>
             {totalsRows.map(r => (
@@ -510,25 +532,110 @@ function OrderViewMode({
             </div>
           </div>
 
-          {/* Quick status actions */}
-          {(order.status !== 'COMPLETED' && order.status !== 'CANCELLED') && (
+          {/* Outcome badge */}
+          <div className="rounded-lg border p-4 space-y-2">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Outcome</h4>
+            <OutcomePill outcome={order.outcome} />
+            {order.outcome === 'DELAYED' && order.delay_date && (
+              <div className="mt-2 space-y-1">
+                <p className="text-xs text-muted-foreground">
+                  <span className="font-medium">Follow-up:</span>{' '}
+                  {new Date(order.delay_date + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                </p>
+                {order.delay_reason && (
+                  <p className="text-xs text-muted-foreground">
+                    <span className="font-medium">Reason:</span> {order.delay_reason}
+                  </p>
+                )}
+              </div>
+            )}
+            {order.outcome === 'CANCELLED' && order.cancellation_reason && (
+              <p className="text-xs text-muted-foreground mt-2">
+                <span className="font-medium">Reason:</span> {order.cancellation_reason}
+              </p>
+            )}
+            {order.outcome_note && (
+              <p className="text-xs text-muted-foreground italic mt-1">{order.outcome_note}</p>
+            )}
+          </div>
+
+          {/* Contact customer */}
+          {(order.billing_phone || order.billing_address?.phone) && (
+            <div className="rounded-lg border p-4 space-y-2">
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Contact Customer</h4>
+              <div className="flex gap-2">
+                <Button
+                  size="sm" variant="outline"
+                  className="flex-1 gap-1.5 h-8 text-xs"
+                  onClick={() => {
+                    const phone = order.billing_phone || order.billing_address?.phone || '';
+                    window.open(`tel:${phone}`, '_self');
+                  }}
+                >
+                  <Phone className="size-3" /> Call
+                </Button>
+                <Button
+                  size="sm" variant="outline"
+                  className="flex-1 gap-1.5 h-8 text-xs text-green-700 border-green-200 hover:bg-green-50"
+                  onClick={() => {
+                    const phone = (order.billing_phone || order.billing_address?.phone || '').replace(/[^0-9+]/g, '');
+                    window.open(`https://wa.me/${phone}`, '_blank');
+                  }}
+                >
+                  <MessageCircleMore className="size-3" /> WhatsApp
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground font-mono mt-1">
+                {order.billing_phone || order.billing_address?.phone}
+              </p>
+            </div>
+          )}
+
+          {/* Order outcome actions */}
+          {order.status !== 'CANCELLED' && order.status !== 'COMPLETED' && !order.is_deleted && (
             <div className="space-y-2">
+              {order.outcome !== 'CONFIRMED' && (
+                <Button
+                  size="sm"
+                  className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                  onClick={onConfirm}
+                  disabled={isLoading}
+                >
+                  {isLoading ? <Loader2 className="size-3.5 animate-spin" /> : <ThumbsUp className="size-3.5" />}
+                  Confirm Order
+                </Button>
+              )}
               <Button
-                size="sm"
-                className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700"
-                onClick={() => onStatusChange(order.id, 'COMPLETED')}
+                size="sm" variant="outline"
+                className="w-full gap-1.5 text-amber-700 border-amber-200 hover:bg-amber-50"
+                onClick={onOpenDelay}
                 disabled={isLoading}
               >
-                {isLoading ? <Loader2 className="size-3.5 animate-spin" /> : <CheckCircle className="size-3.5" />}
-                Mark Completed
+                <CalendarClock className="size-3.5" /> Delay Order
               </Button>
               <Button
                 size="sm" variant="outline"
                 className="w-full gap-1.5 text-red-600 border-red-200 hover:bg-red-50"
-                onClick={() => onStatusChange(order.id, 'CANCELLED')}
+                onClick={onOpenCancel}
                 disabled={isLoading}
               >
-                <XCircle className="size-3.5" /> Cancel Order
+                <Ban className="size-3.5" /> Cancel Order
+              </Button>
+            </div>
+          )}
+
+          {/* Quick status change */}
+          {order.status !== 'COMPLETED' && order.status !== 'CANCELLED' && !order.is_deleted && (
+            <div className="space-y-2">
+              <Separator />
+              <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Status</h4>
+              <Button
+                size="sm" variant="outline"
+                className="w-full gap-1.5 h-8 text-xs"
+                onClick={() => onStatusChange(order.id, 'COMPLETED')}
+                disabled={isLoading}
+              >
+                <CheckCircle className="size-3.5" /> Mark Completed
               </Button>
             </div>
           )}
@@ -548,7 +655,6 @@ interface OrderEditModeProps {
   loadingEditProducts: boolean;
   currency: string;
   onUpdateLine: (index: number, key: 'quantity' | 'unit_price', value: string) => void;
-  onUpdateLineField: (index: number, key: 'product_name' | 'barcode', value: string) => void;
   onUpdateLineProduct: (index: number, productId: string) => void;
   onAddLine: () => void;
   onRemoveLine: (index: number) => void;
@@ -561,7 +667,7 @@ interface OrderEditModeProps {
 
 function OrderEditMode({
   editForm, editProducts, loadingEditProducts, currency,
-  onUpdateLine, onUpdateLineField, onUpdateLineProduct,
+  onUpdateLine, onUpdateLineProduct,
   onAddLine, onRemoveLine, onSaveEdit, onCancel,
   onChangeDiscount, onChangeNote, isSaving,
 }: Readonly<OrderEditModeProps>) {
@@ -836,9 +942,11 @@ interface OrderDetailDialogProps {
   savingEdit: boolean;
   mutatingOrder: boolean;
   onStatusChange: (id: number, status: OrderStatus) => void;
+  onConfirmOrder: (id: number) => void;
+  onDelayOrder: (id: number, data: { delay_date: string; delay_reason: string; note?: string }) => void;
+  onCancelOrder: (id: number, data: { cancellation_reason: string; note?: string }) => void;
   onEditModeChange: (enabled: boolean) => void;
   onUpdateLine: (index: number, key: 'quantity' | 'unit_price', value: string) => void;
-  onUpdateLineField: (index: number, key: 'product_name' | 'barcode', value: string) => void;
   onUpdateLineProduct: (index: number, productId: string) => void;
   onAddLine: () => void;
   onRemoveLine: (index: number) => void;
@@ -854,17 +962,21 @@ export function OrderDetailDialog({
   open, onOpenChange, order, isDetailLoading,
   isEditMode, editForm, editProducts, loadingEditProducts,
   savingEdit, mutatingOrder,
-  onStatusChange, onEditModeChange,
-  onUpdateLine, onUpdateLineField, onUpdateLineProduct,
+  onStatusChange, onConfirmOrder, onDelayOrder, onCancelOrder,
+  onEditModeChange,
+  onUpdateLine, onUpdateLineProduct,
   onAddLine, onRemoveLine, onSaveEdit,
   onChangeDiscount, onChangeNote,
   onOpenLogs, onDelete, onRestore,
 }: Readonly<OrderDetailDialogProps>) {
+  const [delayDialogOpen, setDelayDialogOpen] = useState(false);
+  const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
+
   const title = order ? `Order ${order.order_number}` : 'Loading...';
   const desc = order?.external_order_id ? `WC #${order.external_order_id}` : undefined;
 
   const footerActions = order && !isEditMode ? (
-    <div className="flex items-center gap-2 justify-end w-full">
+    <div className="flex items-center gap-2 justify-end w-full flex-wrap">
       {!order.is_deleted && (
         <Button size="sm" variant="outline" className="gap-1.5 h-8 text-xs" onClick={() => onEditModeChange(true)}>
           <Pencil className="size-3" /> Edit
@@ -912,7 +1024,14 @@ export function OrderDetailDialog({
           )}
 
           {!isEditMode ? (
-            <OrderViewMode order={order} onStatusChange={onStatusChange} isLoading={mutatingOrder} />
+            <OrderViewMode
+              order={order}
+              onStatusChange={onStatusChange}
+              onConfirm={() => onConfirmOrder(order.id)}
+              onOpenDelay={() => setDelayDialogOpen(true)}
+              onOpenCancel={() => setCancelDialogOpen(true)}
+              isLoading={mutatingOrder}
+            />
           ) : editForm ? (
             <OrderEditMode
               editForm={editForm}
@@ -920,7 +1039,6 @@ export function OrderDetailDialog({
               loadingEditProducts={loadingEditProducts}
               currency={order.currency}
               onUpdateLine={onUpdateLine}
-              onUpdateLineField={onUpdateLineField}
               onUpdateLineProduct={onUpdateLineProduct}
               onAddLine={onAddLine}
               onRemoveLine={onRemoveLine}
@@ -933,7 +1051,221 @@ export function OrderDetailDialog({
           ) : null}
         </div>
       ) : null}
+
+      {/* ── Delay Order Dialog ── */}
+      {order && (
+        <DelayOrderDialog
+          open={delayDialogOpen}
+          onOpenChange={setDelayDialogOpen}
+          onSubmit={(data) => {
+            onDelayOrder(order.id, data);
+            setDelayDialogOpen(false);
+          }}
+          isLoading={mutatingOrder}
+        />
+      )}
+
+      {/* ── Cancel Order Dialog ── */}
+      {order && (
+        <CancelOrderDialog
+          open={cancelDialogOpen}
+          onOpenChange={setCancelDialogOpen}
+          onSubmit={(data) => {
+            onCancelOrder(order.id, data);
+            setCancelDialogOpen(false);
+          }}
+          isLoading={mutatingOrder}
+        />
+      )}
     </ResponsiveSheet>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* DELAY ORDER DIALOG                                                        */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+interface DelayOrderDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (data: { delay_date: string; delay_reason: string; note?: string }) => void;
+  isLoading?: boolean;
+}
+
+function DelayOrderDialog({ open, onOpenChange, onSubmit, isLoading }: Readonly<DelayOrderDialogProps>) {
+  const [delayDate, setDelayDate] = useState('');
+  const [delayReason, setDelayReason] = useState('');
+  const [note, setNote] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  // Reset form when dialog opens
+  useEffect(() => {
+    if (open) {
+      setDelayDate('');
+      setDelayReason('');
+      setNote('');
+      setErrors({});
+    }
+  }, [open]);
+
+  const handleSubmit = () => {
+    const newErrors: Record<string, string> = {};
+    if (!delayDate) newErrors.delay_date = 'Follow-up date is required.';
+    if (!delayReason.trim() || delayReason.trim().length < 3) newErrors.delay_reason = 'Reason must be at least 3 characters.';
+    if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
+    onSubmit({ delay_date: delayDate, delay_reason: delayReason.trim(), note: note.trim() || undefined });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-amber-700">
+            <CalendarClock className="size-5" /> Delay Order
+          </DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            Mark this order as delayed. The customer can be contacted later.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div>
+            <Label className="text-xs font-semibold mb-1.5 block">Follow-up Date *</Label>
+            <Input
+              type="date"
+              value={delayDate}
+              onChange={e => { setDelayDate(e.target.value); setErrors(p => ({ ...p, delay_date: '' })); }}
+              min={new Date().toISOString().split('T')[0]}
+              className={`h-9 ${errors.delay_date ? 'border-red-300 focus-visible:ring-red-200' : ''}`}
+            />
+            {errors.delay_date && <p className="text-xs text-red-600 mt-1">{errors.delay_date}</p>}
+          </div>
+          <div>
+            <Label className="text-xs font-semibold mb-1.5 block">Reason *</Label>
+            <Textarea
+              value={delayReason}
+              onChange={e => { setDelayReason(e.target.value); setErrors(p => ({ ...p, delay_reason: '' })); }}
+              placeholder="Customer unavailable, stock issue, scheduling conflict..."
+              className={`min-h-20 text-sm resize-none ${errors.delay_reason ? 'border-red-300 focus-visible:ring-red-200' : ''}`}
+            />
+            {errors.delay_reason && <p className="text-xs text-red-600 mt-1">{errors.delay_reason}</p>}
+          </div>
+          <div>
+            <Label className="text-xs font-semibold mb-1.5 block">Note (optional)</Label>
+            <Textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="Any additional details..."
+              className="min-h-16 text-sm resize-none"
+            />
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={isLoading}>
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              className="gap-1.5 bg-amber-600 hover:bg-amber-700"
+              onClick={handleSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? <Loader2 className="size-3.5 animate-spin" /> : <CalendarClock className="size-3.5" />}
+              Mark Delayed
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════ */
+/* CANCEL ORDER DIALOG                                                       */
+/* ═══════════════════════════════════════════════════════════════════════════ */
+
+interface CancelOrderDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSubmit: (data: { cancellation_reason: string; note?: string }) => void;
+  isLoading?: boolean;
+}
+
+function CancelOrderDialog({ open, onOpenChange, onSubmit, isLoading }: Readonly<CancelOrderDialogProps>) {
+  const [reason, setReason] = useState('');
+  const [note, setNote] = useState('');
+  const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (open) {
+      setReason('');
+      setNote('');
+      setErrors({});
+    }
+  }, [open]);
+
+  const handleSubmit = () => {
+    const newErrors: Record<string, string> = {};
+    if (!reason.trim() || reason.trim().length < 3) newErrors.reason = 'Cancellation reason must be at least 3 characters.';
+    if (Object.keys(newErrors).length > 0) { setErrors(newErrors); return; }
+    onSubmit({ cancellation_reason: reason.trim(), note: note.trim() || undefined });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-red-700">
+            <Ban className="size-5" /> Cancel Order
+          </DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            This will cancel the order and set its status to Cancelled. This action cannot be easily undone.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 pt-2">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-3">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="size-4 text-red-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-red-700 leading-relaxed">
+                Cancelling this order will update both the outcome and the order status to <strong>Cancelled</strong>.
+                The order will remain in the system for audit purposes.
+              </p>
+            </div>
+          </div>
+          <div>
+            <Label className="text-xs font-semibold mb-1.5 block">Cancellation Reason *</Label>
+            <Textarea
+              value={reason}
+              onChange={e => { setReason(e.target.value); setErrors(p => ({ ...p, reason: '' })); }}
+              placeholder="Customer requested cancellation, out of stock, fraud..."
+              className={`min-h-20 text-sm resize-none ${errors.reason ? 'border-red-300 focus-visible:ring-red-200' : ''}`}
+            />
+            {errors.reason && <p className="text-xs text-red-600 mt-1">{errors.reason}</p>}
+          </div>
+          <div>
+            <Label className="text-xs font-semibold mb-1.5 block">Note (optional)</Label>
+            <Textarea
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              placeholder="Any additional internal details..."
+              className="min-h-16 text-sm resize-none"
+            />
+          </div>
+          <div className="flex gap-2 justify-end pt-2">
+            <Button variant="outline" size="sm" onClick={() => onOpenChange(false)} disabled={isLoading}>
+              Keep Order
+            </Button>
+            <Button
+              size="sm" variant="destructive"
+              className="gap-1.5"
+              onClick={handleSubmit}
+              disabled={isLoading}
+            >
+              {isLoading ? <Loader2 className="size-3.5 animate-spin" /> : <Ban className="size-3.5" />}
+              Cancel Order
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 

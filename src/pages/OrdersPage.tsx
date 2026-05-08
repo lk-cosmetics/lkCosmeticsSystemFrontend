@@ -5,7 +5,7 @@
  *
  * Architecture:
  *   - Data fetched via service layer (no React Query — matches existing pattern)
- *   - Deferred search for instant-feel filtering
+ *   - Server-side search/filter/pagination for scalable lists
  *   - Memoised helpers to avoid re-renders
  *   - Mobile-responsive table with progressive column hiding
  *   - Always-visible action buttons (no opacity tricks)
@@ -140,6 +140,9 @@ export default function OrdersPage() {
   const [sourceFilter, setSourceFilter] = useState('all');
   const [brandFilter, setBrandFilter] = useState('all');
   const [includeDeleted, setIncludeDeleted] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalOrders, setTotalOrders] = useState(0);
+  const pageSize = 20;
 
   /* ── detail / edit state ─── */
   const [viewOrder, setViewOrder] = useState<OrderDetail | null>(null);
@@ -176,12 +179,6 @@ export default function OrdersPage() {
   const deferredSearch = useDeferredValue(search);
 
   /* ── brand/channel maps ─── */
-  const channelBrandMap = useMemo(() => {
-    const m = new Map<number, number>();
-    channels.forEach(c => m.set(c.id, c.brand));
-    return m;
-  }, [channels]);
-
   const availableBrands = useMemo(() => {
     const m = new Map<number, string>();
     channels.forEach(c => { if (!m.has(c.brand)) m.set(c.brand, c.brand_name); });
@@ -196,10 +193,20 @@ export default function OrdersPage() {
     setLoading(true);
     try {
       const [ordersRes, summaryRes] = await Promise.all([
-        orderService.getAll({ page_size: 200, include_deleted: includeDeleted }),
+        orderService.getAll({
+          page: currentPage,
+          page_size: pageSize,
+          include_deleted: includeDeleted,
+          ...(statusFilter !== 'all' ? { status: statusFilter as OrderStatus } : {}),
+          ...(sourceFilter !== 'all' ? { source: sourceFilter } : {}),
+          ...(brandFilter !== 'all' ? { brand: Number(brandFilter) } : {}),
+          ...(deferredSearch ? { search: deferredSearch } : {}),
+        }),
         orderService.getSummary(),
       ]);
-      setOrders(ordersRes.results ?? ordersRes);
+      const paginated = !Array.isArray(ordersRes) && Array.isArray(ordersRes.results);
+      setOrders(paginated ? ordersRes.results : ordersRes);
+      setTotalOrders(paginated ? ordersRes.count : ordersRes.length);
       setSummary(summaryRes);
     } catch (err) {
       console.error('Failed to fetch orders', err);
@@ -212,33 +219,15 @@ export default function OrdersPage() {
     } finally {
       setLoading(false);
     }
-  }, [includeDeleted]);
+  }, [brandFilter, currentPage, deferredSearch, includeDeleted, sourceFilter, statusFilter]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  /* ══════════════════════════════════════════════════════════════════════════ */
-  /* FILTERING                                                                */
-  /* ══════════════════════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [brandFilter, deferredSearch, includeDeleted, sourceFilter, statusFilter]);
 
-  const filtered = useMemo(() => {
-    let items = orders;
-    if (statusFilter !== 'all') items = items.filter(o => o.status === statusFilter);
-    if (sourceFilter !== 'all') items = items.filter(o => o.source === sourceFilter);
-    if (brandFilter !== 'all') {
-      const bid = Number(brandFilter);
-      items = items.filter(o => channelBrandMap.get(o.sales_channel) === bid);
-    }
-    if (deferredSearch) {
-      const q = deferredSearch.toLowerCase();
-      items = items.filter(o =>
-        o.order_number.toLowerCase().includes(q) ||
-        (o.client_email ?? '').toLowerCase().includes(q) ||
-        (o.client_name ?? '').toLowerCase().includes(q) ||
-        (o.external_order_id ?? '').toLowerCase().includes(q)
-      );
-    }
-    return items;
-  }, [orders, statusFilter, sourceFilter, brandFilter, deferredSearch, channelBrandMap]);
+  const totalPages = Math.max(1, Math.ceil(totalOrders / pageSize));
 
   /* ══════════════════════════════════════════════════════════════════════════ */
   /* DETAIL / EDIT ACTIONS                                                    */
@@ -259,6 +248,18 @@ export default function OrdersPage() {
         discount_value: detail.discount_value,
         customer_note: detail.customer_note,
         internal_note: detail.internal_note,
+        // Billing fields
+        billing_first_name: detail.billing_first_name,
+        billing_last_name: detail.billing_last_name,
+        billing_company: detail.billing_company,
+        billing_email: detail.billing_email,
+        billing_phone: detail.billing_phone,
+        billing_address_1: detail.billing_address_1,
+        billing_address_2: detail.billing_address_2,
+        billing_city: detail.billing_city,
+        billing_state: detail.billing_state,
+        billing_postcode: detail.billing_postcode,
+        billing_country: detail.billing_country,
       });
     } catch (err) {
       console.error('Failed to load order detail', err);
@@ -279,19 +280,36 @@ export default function OrdersPage() {
 
   // Load products when entering edit mode
   useEffect(() => {
-    if (!editMode || !viewOrder) { setEditProducts([]); return; }
+    if (!editMode || !viewOrder) { 
+      setEditProducts([]); 
+      return; 
+    }
+    
+    // Determine brand ID from current view
     const brandId = viewOrder.brand ?? channels.find(c => c.id === viewOrder.sales_channel)?.brand;
-    if (!brandId) { setEditProducts([]); return; }
+    if (!brandId) { 
+      console.warn('No brand found for order', viewOrder.id);
+      setEditProducts([]); 
+      return; 
+    }
 
     setLoadingEditProducts(true);
     productService.getAllProducts({ brand: brandId, page_size: 500 })
-      .then(setEditProducts)
-      .catch(() => setEditProducts([]))
+      .then(products => {
+        if (!products || products.length === 0) {
+          console.warn(`No products found for brand ${brandId}`);
+        }
+        setEditProducts(products || []);
+      })
+      .catch(err => {
+        console.error('Failed to load edit products:', err);
+        setEditProducts([]);
+      })
       .finally(() => setLoadingEditProducts(false));
   }, [editMode, viewOrder, channels]);
 
   /* ── edit form helpers ─── */
-  const updateEditLine = (index: number, key: 'quantity' | 'unit_price', value: string) => {
+  const updateEditLine = useCallback((index: number, key: 'quantity' | 'unit_price', value: string) => {
     setEditForm(prev => {
       if (!prev) return prev;
       const lines = [...prev.lines];
@@ -301,60 +319,67 @@ export default function OrdersPage() {
         const qty = Number(value);
         lines[index] = { ...cur, quantity: Number.isFinite(qty) && qty > 0 ? qty : 1 };
       } else {
-        lines[index] = { ...cur, unit_price: value };
+        lines[index] = { ...cur, unit_price: String(value || '0.00') };
       }
       return { ...prev, lines };
     });
-  };
+  }, []);
 
-  const updateEditLineField = (index: number, key: 'product_name' | 'barcode', value: string) => {
-    setEditForm(prev => {
-      if (!prev) return prev;
-      const lines = [...prev.lines];
-      const cur = lines[index];
-      if (!cur) return prev;
-      lines[index] = { ...cur, [key]: value };
-      return { ...prev, lines };
-    });
-  };
-
-  const updateEditLineProduct = (index: number, selectedValue: string) => {
+  const updateEditLineProduct = useCallback((index: number, selectedValue: string) => {
     setEditForm(prev => {
       if (!prev) return prev;
       const lines = [...prev.lines];
       const cur = lines[index];
       if (!cur) return prev;
 
+      // Manual entry mode
       if (selectedValue === '__manual__') {
-        lines[index] = { ...cur, product: null, product_name: cur.product_name ?? '' };
+        lines[index] = { 
+          ...cur, 
+          product: null, 
+          product_name: cur.product_name ?? '',
+          quantity: cur.quantity || 1,
+          unit_price: cur.unit_price || '0.00',
+          barcode: cur.barcode || '',
+        };
         return { ...prev, lines };
       }
 
+      // Lookup product from loaded products
       const pid = Number(selectedValue);
-      const p = editProducts.find(x => x.id === pid);
-      if (!p) return prev;
+      const selectedProduct = editProducts.find(x => x.id === pid);
+      
+      if (!selectedProduct) {
+        console.warn(`Product ${pid} not found in editProducts. Available: ${editProducts.map(p => p.id).join(',')}`);
+        return prev;
+      }
 
+      // Sync all product data including price
       lines[index] = {
-        ...cur, product: p.id, product_name: p.name,
-        barcode: p.barcode || '', unit_price: p.sales_price || cur.unit_price || '0.00',
+        ...cur, 
+        product: selectedProduct.id, 
+        product_name: selectedProduct.name,
+        barcode: selectedProduct.barcode || cur.barcode || '',
+        quantity: cur.quantity || 1,
+        unit_price: String(selectedProduct.sales_price || cur.unit_price || '0.00'),
       };
       return { ...prev, lines };
     });
-  };
+  }, [editProducts]);
 
-  const handleAddLine = () => {
+  const handleAddLine = useCallback(() => {
     setEditForm(prev => prev ? {
       ...prev,
       lines: [...prev.lines, { product: null, product_name: '', barcode: '', quantity: 1, unit_price: '0.00' }],
     } : prev);
-  };
+  }, []);
 
-  const handleRemoveLine = (index: number) => {
+  const handleRemoveLine = useCallback((index: number) => {
     setEditForm(prev => {
       if (!prev || prev.lines.length <= 1) return prev;
       return { ...prev, lines: prev.lines.filter((_, i) => i !== index) };
     });
-  };
+  }, []);
 
   const handleSaveEdit = async () => {
     if (!viewOrder || !editForm) return;
@@ -422,6 +447,52 @@ export default function OrdersPage() {
       setErrorMessage(err instanceof Error ? err.message : 'Failed to load logs.'); setErrorDialog(true);
       setLogsDialog(false);
     } finally { setLoadingLogs(false); }
+  };
+
+  /* ══════════════════════════════════════════════════════════════════════════ */
+  /* ORDER OUTCOME HANDLERS                                                   */
+  /* ══════════════════════════════════════════════════════════════════════════ */
+
+  const handleConfirmOrder = async (id: number) => {
+    setMutatingOrder(true);
+    try {
+      const updated = await orderService.confirmOrder(id);
+      setViewOrder(updated);
+      await fetchData();
+      setSuccessMessage('Order confirmed successfully.');
+      setSuccessDialog(true);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to confirm order.');
+      setErrorDialog(true);
+    } finally { setMutatingOrder(false); }
+  };
+
+  const handleDelayOrder = async (id: number, data: { delay_date: string; delay_reason: string; note?: string }) => {
+    setMutatingOrder(true);
+    try {
+      const updated = await orderService.delayOrder(id, data);
+      setViewOrder(updated);
+      await fetchData();
+      setSuccessMessage('Order marked as delayed.');
+      setSuccessDialog(true);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to delay order.');
+      setErrorDialog(true);
+    } finally { setMutatingOrder(false); }
+  };
+
+  const handleCancelOrder = async (id: number, data: { cancellation_reason: string; note?: string }) => {
+    setMutatingOrder(true);
+    try {
+      const updated = await orderService.cancelOrder(id, data);
+      setViewOrder(updated);
+      await fetchData();
+      setSuccessMessage('Order cancelled.');
+      setSuccessDialog(true);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : 'Failed to cancel order.');
+      setErrorDialog(true);
+    } finally { setMutatingOrder(false); }
   };
 
   /* ══════════════════════════════════════════════════════════════════════════ */
@@ -512,12 +583,19 @@ export default function OrdersPage() {
 
       {/* ── KPIs ─── */}
       {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <KpiCard title="Total" value={summary.total_orders} icon={<ShoppingCart className="size-3" />} />
-          <KpiCard title="Pending" value={summary.pending} tone="text-amber-600" icon={<Clock className="size-3" />} />
-          <KpiCard title="Processing" value={summary.processing} tone="text-blue-600" icon={<Package className="size-3" />} />
-          <KpiCard title="Completed" value={summary.completed} tone="text-emerald-600" icon={<CheckCircle className="size-3" />} />
-          <KpiCard title="Revenue" value={`TND ${summary.revenue}`} tone="text-emerald-600" icon={<TrendingUp className="size-3" />} />
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <KpiCard title="Total" value={summary.total_orders} icon={<ShoppingCart className="size-3" />} />
+            <KpiCard title="Pending" value={summary.pending} tone="text-amber-600" icon={<Clock className="size-3" />} />
+            <KpiCard title="Processing" value={summary.processing} tone="text-blue-600" icon={<Package className="size-3" />} />
+            <KpiCard title="Completed" value={summary.completed} tone="text-emerald-600" icon={<CheckCircle className="size-3" />} />
+            <KpiCard title="Revenue" value={`TND ${summary.revenue}`} tone="text-emerald-600" icon={<TrendingUp className="size-3" />} />
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            <KpiCard title="Confirmed" value={summary.confirmed_count} tone="text-emerald-600" icon={<CheckCircle className="size-3" />} />
+            <KpiCard title="Delayed" value={summary.delayed_count} tone="text-amber-600" icon={<Clock className="size-3" />} />
+            <KpiCard title="Cancelled" value={summary.cancelled_outcome} tone="text-red-600" icon={<ShoppingCart className="size-3" />} />
+          </div>
         </div>
       )}
 
@@ -570,7 +648,7 @@ export default function OrdersPage() {
 
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-sm">
             <span className="text-muted-foreground">
-              {loading ? 'Loading...' : `${filtered.length} order${filtered.length !== 1 ? 's' : ''}`}
+              {loading ? 'Loading...' : `${totalOrders} order${totalOrders !== 1 ? 's' : ''}`}
             </span>
             {isAdmin && (
               <label className="flex items-center gap-2 text-muted-foreground cursor-pointer">
@@ -613,14 +691,14 @@ export default function OrdersPage() {
                   </TableCell>
                 </TableRow>
               )}
-              {!loading && filtered.length === 0 && (
+              {!loading && orders.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={9} className="text-center py-16 text-muted-foreground">
                     No orders found.
                   </TableCell>
                 </TableRow>
               )}
-              {!loading && filtered.map(o => (
+              {!loading && orders.map(o => (
                 <TableRow
                   key={o.id}
                   className={`group hover:bg-muted/30 cursor-pointer transition-colors ${o.is_deleted ? 'opacity-50' : ''}`}
@@ -635,6 +713,17 @@ export default function OrdersPage() {
                   <TableCell>
                     <div className="flex items-center gap-1.5 flex-wrap">
                       <StatusBadge status={o.status} />
+                      {o.outcome && o.outcome !== 'NONE' && (
+                        <Badge variant="outline" className={`text-[10px] border-transparent ${
+                          o.outcome === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-700' :
+                          o.outcome === 'DELAYED' ? 'bg-amber-100 text-amber-700' :
+                          o.outcome === 'CANCELLED' ? 'bg-red-100 text-red-700' : ''
+                        }`}>
+                          {o.outcome === 'CONFIRMED' ? 'Confirmed' :
+                           o.outcome === 'DELAYED' ? 'Delayed' :
+                           o.outcome === 'CANCELLED' ? 'Cancelled' : o.outcome}
+                        </Badge>
+                      )}
                       {o.is_deleted && <Badge variant="destructive" className="text-xs">Deleted</Badge>}
                     </div>
                   </TableCell>
@@ -688,6 +777,30 @@ export default function OrdersPage() {
         </div>
       </Card>
 
+      <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+        <span className="text-muted-foreground">
+          Page {currentPage} of {totalPages}
+        </span>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loading || currentPage <= 1}
+            onClick={() => setCurrentPage(page => Math.max(1, page - 1))}
+          >
+            Previous
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={loading || currentPage >= totalPages}
+            onClick={() => setCurrentPage(page => Math.min(totalPages, page + 1))}
+          >
+            Next
+          </Button>
+        </div>
+      </div>
+
       {/* ── Dialogs ─── */}
       <OrderDetailDialog
         open={detailLoading || !!viewOrder}
@@ -701,9 +814,11 @@ export default function OrdersPage() {
         savingEdit={savingEdit}
         mutatingOrder={mutatingOrder}
         onStatusChange={handleStatusChange}
+        onConfirmOrder={handleConfirmOrder}
+        onDelayOrder={handleDelayOrder}
+        onCancelOrder={handleCancelOrder}
         onEditModeChange={setEditMode}
         onUpdateLine={updateEditLine}
-        onUpdateLineField={updateEditLineField}
         onUpdateLineProduct={updateEditLineProduct}
         onAddLine={handleAddLine}
         onRemoveLine={handleRemoveLine}

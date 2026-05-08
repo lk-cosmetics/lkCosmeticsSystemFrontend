@@ -6,6 +6,7 @@ import {
   Loader2,
   Receipt,
   Trash2,
+  Tag,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -33,10 +34,12 @@ const PAYMENT_METHODS = [
 interface POSCartProps {
   cart: CartLine[];
   cartTotal: number;
+  cartOriginalTotal: number;
   cartItemCount: number;
   onQtyChange: (productId: number, delta: number) => void;
   onRemove: (productId: number) => void;
   onClearCart: () => void;
+  getPrice?: (product: CartLine['product']) => number;
   /* Customer handling */
   clients: Client[];
   selectedClient: Client | null;
@@ -45,6 +48,7 @@ interface POSCartProps {
   onSkipClient: () => void;
   onClearClient: () => void;
   onAddClientClick: () => void;
+  canAddClient?: boolean;
   /* Payment & checkout */
   paymentMethod: string;
   onPaymentMethodChange: (value: string) => void;
@@ -62,10 +66,12 @@ interface POSCartProps {
 export function POSCart({
   cart,
   cartTotal,
+  cartOriginalTotal,
   cartItemCount,
   onQtyChange,
   onRemove,
   onClearCart,
+  getPrice,
   clients,
   selectedClient,
   clientSkipped,
@@ -73,6 +79,7 @@ export function POSCart({
   onSkipClient,
   onClearClient,
   onAddClientClick,
+  canAddClient = true,
   paymentMethod,
   onPaymentMethodChange,
   customerNote,
@@ -84,6 +91,8 @@ export function POSCart({
   disabled,
 }: POSCartProps) {
   const hasItems = cart.length > 0;
+  const savings = Math.max(0, cartOriginalTotal - cartTotal);
+  const hasDiscount = savings > 0.001;
 
   return (
     <div className="flex flex-col h-full gap-3">
@@ -127,18 +136,19 @@ export function POSCart({
                 line={line}
                 onQty={onQtyChange}
                 onRemove={onRemove}
+                getPrice={getPrice}
               />
             ))}
           </div>
         )}
       </ScrollArea>
 
-      {/* ── Checkout section (only when cart has items) ──────────────── */}
+      {/* ── Checkout section ────────────────────────────────────────── */}
       {hasItems && (
         <>
           <Separator />
 
-          {/* Customer — no default, must explicitly select/skip */}
+          {/* Customer */}
           <div>
             <Label className="text-xs mb-1.5 block">Customer</Label>
             <POSCustomerSection
@@ -149,6 +159,7 @@ export function POSCart({
               onSkipClient={onSkipClient}
               onClearClient={onClearClient}
               onAddClientClick={onAddClientClick}
+              canAddClient={canAddClient}
             />
           </div>
 
@@ -196,19 +207,45 @@ export function POSCart({
             />
           )}
 
-          {/* ── Total & Submit ──────────────────────────────────────── */}
-          <div className="border-t pt-3 space-y-2.5">
-            <div className="flex justify-between items-baseline">
+          {/* ── Totals & Submit ─────────────────────────────────────── */}
+          <div className="border-t pt-3 space-y-1.5">
+
+            {/* Subtotal row — only when a discount applies */}
+            {hasDiscount && (
+              <div className="flex justify-between items-baseline text-sm text-muted-foreground">
+                <span>Subtotal</span>
+                <span className="tabular-nums line-through">
+                  {fmtTND(cartOriginalTotal)} TND
+                </span>
+              </div>
+            )}
+
+            {/* Savings row */}
+            {hasDiscount && (
+              <div className="flex justify-between items-center">
+                <span className="flex items-center gap-1 text-sm text-green-600 font-medium">
+                  <Tag className="size-3.5" />
+                  Promotions
+                </span>
+                <span className="text-sm font-semibold text-green-600 tabular-nums">
+                  −{fmtTND(savings)} TND
+                </span>
+              </div>
+            )}
+
+            {/* Total */}
+            <div className="flex justify-between items-baseline pt-0.5">
               <span className="text-sm text-muted-foreground">Total</span>
-              <span className="text-xl font-bold tabular-nums">
+              <span className={`text-xl font-bold tabular-nums ${hasDiscount ? 'text-green-600' : ''}`}>
                 {fmtTND(cartTotal)}{' '}
                 <span className="text-sm font-normal text-muted-foreground">
                   TND
                 </span>
               </span>
             </div>
+
             <Button
-              className="w-full h-11 text-sm font-semibold gap-2"
+              className="w-full h-11 text-sm font-semibold gap-2 mt-1"
               size="lg"
               disabled={disabled || submitting}
               onClick={onSubmit}
@@ -216,7 +253,7 @@ export function POSCart({
               {submitting ? (
                 <>
                   <Loader2 className="size-4 animate-spin" />
-                  Processing...
+                  Applying promotions &amp; processing…
                 </>
               ) : (
                 <>

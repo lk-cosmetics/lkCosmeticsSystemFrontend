@@ -14,6 +14,13 @@ import type {
   CreateTransferRequest,
   ProductInventorySummary,
   MovementSummary,
+  BillOfMaterials,
+  CreateBillOfMaterialsRequest,
+  UpdateBillOfMaterialsRequest,
+  ProductionBatch,
+  SendToFactoryRequest,
+  ReceiveFromFactoryRequest,
+  InFactorySummary,
   PaginatedResponse,
 } from '@/types';
 
@@ -22,6 +29,11 @@ import type {
 // =============================================================================
 
 const STORE_INVENTORY_ENDPOINT = '/api/v1/inventory/store-inventory/';
+
+const unwrapList = <T>(data: PaginatedResponse<T> | T[]): T[] => {
+  if (Array.isArray(data)) return data;
+  return data.results;
+};
 
 class StoreInventoryService {
   /**
@@ -36,10 +48,7 @@ class StoreInventoryService {
     const response = await apiClient.get<
       PaginatedResponse<SalesChannelInventory> | SalesChannelInventory[]
     >(STORE_INVENTORY_ENDPOINT, { params });
-    if ('results' in response.data) {
-      return response.data.results;
-    }
-    return response.data;
+    return unwrapList(response.data);
   }
 
   /**
@@ -108,11 +117,13 @@ class StoreInventoryService {
    * Get all low stock items
    */
   async getLowStockItems(companyId?: number): Promise<SalesChannelInventory[]> {
-    const response = await apiClient.get<SalesChannelInventory[]>(
+    const response = await apiClient.get<
+      PaginatedResponse<SalesChannelInventory> | SalesChannelInventory[]
+    >(
       `${STORE_INVENTORY_ENDPOINT}low_stock/`,
       { params: { company: companyId } }
     );
-    return response.data;
+    return unwrapList(response.data);
   }
 
   /**
@@ -121,11 +132,13 @@ class StoreInventoryService {
   async getOutOfStockItems(
     companyId?: number
   ): Promise<SalesChannelInventory[]> {
-    const response = await apiClient.get<SalesChannelInventory[]>(
+    const response = await apiClient.get<
+      PaginatedResponse<SalesChannelInventory> | SalesChannelInventory[]
+    >(
       `${STORE_INVENTORY_ENDPOINT}out_of_stock/`,
       { params: { company: companyId } }
     );
-    return response.data;
+    return unwrapList(response.data);
   }
 
   /**
@@ -147,6 +160,8 @@ class StoreInventoryService {
 // =============================================================================
 
 const MOVEMENT_ENDPOINT = '/api/v1/inventory/movements/';
+const BOM_ENDPOINT = '/api/v1/inventory/boms/';
+const PRODUCTION_BATCH_ENDPOINT = '/api/v1/inventory/production-batches/';
 
 class InventoryMovementService {
   /**
@@ -165,10 +180,7 @@ class InventoryMovementService {
     const response = await apiClient.get<
       PaginatedResponse<InventoryMovement> | InventoryMovement[]
     >(MOVEMENT_ENDPOINT, { params });
-    if ('results' in response.data) {
-      return response.data.results;
-    }
-    return response.data;
+    return unwrapList(response.data);
   }
 
   /**
@@ -239,6 +251,128 @@ class InventoryMovementService {
   }
 }
 
+// =============================================================================
+// BOM / PRODUCTION SERVICE
+// =============================================================================
+
+class BillOfMaterialsService {
+  async getAll(params?: {
+    finished_product?: number;
+    finished_product__brand__company?: number;
+    is_active?: boolean;
+    search?: string;
+  }): Promise<BillOfMaterials[]> {
+    const response = await apiClient.get<
+      PaginatedResponse<BillOfMaterials> | BillOfMaterials[]
+    >(BOM_ENDPOINT, { params });
+    return unwrapList(response.data);
+  }
+
+  async getById(id: number): Promise<BillOfMaterials> {
+    const response = await apiClient.get<BillOfMaterials>(`${BOM_ENDPOINT}${id}/`);
+    return response.data;
+  }
+
+  async create(data: CreateBillOfMaterialsRequest): Promise<BillOfMaterials> {
+    const response = await apiClient.post<BillOfMaterials>(BOM_ENDPOINT, data);
+    return response.data;
+  }
+
+  async update(
+    id: number,
+    data: UpdateBillOfMaterialsRequest
+  ): Promise<BillOfMaterials> {
+    const response = await apiClient.patch<BillOfMaterials>(
+      `${BOM_ENDPOINT}${id}/`,
+      data
+    );
+    return response.data;
+  }
+
+  async delete(id: number): Promise<void> {
+    await apiClient.delete(`${BOM_ENDPOINT}${id}/`);
+  }
+}
+
+class ProductionBatchService {
+  async getAll(params?: {
+    sales_channel?: number;
+    sales_channel__brand__company?: number;
+    finished_product?: number;
+    status?: string;
+    search?: string;
+  }): Promise<ProductionBatch[]> {
+    const response = await apiClient.get<
+      PaginatedResponse<ProductionBatch> | ProductionBatch[]
+    >(PRODUCTION_BATCH_ENDPOINT, { params });
+    return unwrapList(response.data);
+  }
+
+  async getById(id: number): Promise<ProductionBatch> {
+    const response = await apiClient.get<ProductionBatch>(
+      `${PRODUCTION_BATCH_ENDPOINT}${id}/`
+    );
+    return response.data;
+  }
+
+  async sendToFactory(data: SendToFactoryRequest): Promise<ProductionBatch> {
+    const response = await apiClient.post<ProductionBatch>(
+      PRODUCTION_BATCH_ENDPOINT,
+      data
+    );
+    return response.data;
+  }
+
+  async receiveFromFactory(
+    id: number,
+    data: ReceiveFromFactoryRequest
+  ): Promise<ProductionBatch> {
+    const response = await apiClient.post<ProductionBatch>(
+      `${PRODUCTION_BATCH_ENDPOINT}${id}/receive/`,
+      data
+    );
+    return response.data;
+  }
+
+  async update(id: number, data: { notes?: string }): Promise<ProductionBatch> {
+    const response = await apiClient.patch<ProductionBatch>(
+      `${PRODUCTION_BATCH_ENDPOINT}${id}/`,
+      data
+    );
+    return response.data;
+  }
+
+  async cancel(id: number, data?: { notes?: string }): Promise<ProductionBatch> {
+    const response = await apiClient.post<ProductionBatch>(
+      `${PRODUCTION_BATCH_ENDPOINT}${id}/cancel/`,
+      data ?? {}
+    );
+    return response.data;
+  }
+
+  async delete(id: number, data?: { notes?: string }): Promise<ProductionBatch> {
+    const response = await apiClient.delete<ProductionBatch>(
+      `${PRODUCTION_BATCH_ENDPOINT}${id}/`,
+      { data: data ?? {} }
+    );
+    return response.data;
+  }
+
+  async getInFactorySummary(params?: {
+    company?: number;
+    sales_channel?: number;
+    component?: number;
+  }): Promise<InFactorySummary[]> {
+    const response = await apiClient.get<InFactorySummary[]>(
+      `${PRODUCTION_BATCH_ENDPOINT}in_factory/`,
+      { params }
+    );
+    return response.data;
+  }
+}
+
 // Export service instances
 export const storeInventoryService = new StoreInventoryService();
 export const inventoryMovementService = new InventoryMovementService();
+export const billOfMaterialsService = new BillOfMaterialsService();
+export const productionBatchService = new ProductionBatchService();

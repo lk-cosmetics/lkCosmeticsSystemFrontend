@@ -10,24 +10,32 @@ interface POSProductCardProps {
   product: ProductListItem;
   cartQuantity: number;
   onAdd: () => void;
+  price?: number;
 }
 
 export const POSProductCard = memo(function POSProductCard({
   product,
   cartQuantity,
   onAdd,
+  price: priceOverride,
 }: POSProductCardProps) {
   const [imgError, setImgError] = useState(false);
 
   const resolvedImg = getMediaUrl(product.image_url);
   const showImage = !!resolvedImg && !imgError;
-  const price = getEffectivePrice(product);
+
+  const originalPrice = getEffectivePrice(product);
+  const displayPrice = priceOverride ?? originalPrice;
+  const hasDiscount =
+    typeof priceOverride === 'number' &&
+    Number.isFinite(priceOverride) &&
+    priceOverride < originalPrice;
 
   return (
     <Card
       role="button"
       tabIndex={0}
-      aria-label={`Add ${product.name} — ${fmtTND(price)} TND`}
+      aria-label={`Add ${product.name} — ${fmtTND(displayPrice)} TND`}
       className="cursor-pointer group overflow-hidden transition-all duration-150
         hover:border-primary hover:shadow-md active:scale-[0.97] select-none"
       onClick={onAdd}
@@ -58,6 +66,13 @@ export const POSProductCard = memo(function POSProductCard({
             {cartQuantity}
           </Badge>
         )}
+
+        {/* Promotion SALE badge */}
+        {hasDiscount && (
+          <Badge className="absolute top-1.5 left-1.5 text-[10px] px-1.5 py-0 bg-rose-500 hover:bg-rose-500 text-white border-0">
+            SALE
+          </Badge>
+        )}
       </div>
 
       {/* Info */}
@@ -68,9 +83,16 @@ export const POSProductCard = memo(function POSProductCard({
         <p className="text-[11px] text-muted-foreground truncate mt-0.5">
           {product.barcode || '—'}
         </p>
-        <div className="mt-1.5 flex items-baseline gap-1.5">
-          <span className="text-sm font-bold">{fmtTND(price)}</span>
+        <div className="mt-1.5 flex items-baseline gap-1.5 flex-wrap">
+          <span className={`text-sm font-bold ${hasDiscount ? 'text-rose-600' : ''}`}>
+            {fmtTND(displayPrice)}
+          </span>
           <span className="text-[10px] text-muted-foreground">TND</span>
+          {hasDiscount && (
+            <span className="text-[10px] text-muted-foreground line-through ml-auto">
+              {fmtTND(originalPrice)}
+            </span>
+          )}
         </div>
       </CardContent>
     </Card>

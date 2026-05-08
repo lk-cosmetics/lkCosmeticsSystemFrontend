@@ -298,7 +298,7 @@ export interface PaginatedResponse<T> {
 }
 
 // Sales Channel Types
-export type ChannelType = 'WOOCOMMERCE' | 'POS';
+export type ChannelType = 'WOOCOMMERCE' | 'POS' | 'WEB';
 
 export interface SalesChannel {
   id: number;
@@ -316,6 +316,8 @@ export interface SalesChannel {
   is_default: boolean;
   address: string;
   city: string;
+  state: string;
+  delivery_api_key: string;
   phone: string;
   email: string;
   wc_store_url: string;
@@ -343,6 +345,8 @@ export interface CreateSalesChannelRequest {
   is_default?: boolean;
   address?: string;
   city?: string;
+  state?: string;
+  delivery_api_key?: string;
   phone?: string;
   email?: string;
   wc_store_url?: string;
@@ -498,7 +502,12 @@ export interface AdminChangePasswordRequest {
 // PRODUCT TYPES
 // =============================================================================
 
-export type ProductType = 'resell' | 'packaging';
+export type ProductType =
+  | 'resell'
+  | 'packaging'
+  | 'finished'
+  | 'component'
+  | 'raw_material';
 export type ProductStatus = 'publish' | 'draft' | 'pending' | 'private';
 
 export interface PackItem {
@@ -522,7 +531,7 @@ export interface PackStockEntry {
 
 export interface ProductListItem {
   id: number;
-  wc_product_id: number;
+  wc_product_id: number | null;
   brand: number | null;
   brand_name: string | null;
   name: string;
@@ -844,7 +853,9 @@ export type MovementType =
   | 'RETURN_OUT'
   | 'TRANSFER_OUT'
   | 'ADJUSTMENT_OUT'
-  | 'DAMAGE';
+  | 'DAMAGE'
+  | 'SENT_TO_FACTORY'
+  | 'PRODUCTION_IN';
 
 export type MovementStatus = 'PENDING' | 'COMPLETED' | 'CANCELLED';
 
@@ -916,6 +927,113 @@ export interface MovementSummary {
     count: number;
     total_quantity: number;
   }>;
+}
+
+export interface BillOfMaterialsItem {
+  id: number;
+  component: number;
+  component_name: string;
+  component_barcode: string;
+  quantity_per_unit: string;
+  waste_percent: string;
+  notes: string;
+}
+
+export interface BillOfMaterials {
+  id: number;
+  finished_product: number;
+  finished_product_name: string;
+  finished_product_barcode: string;
+  company_id: number;
+  name: string;
+  version: number;
+  is_active: boolean;
+  items_count: number;
+  notes: string;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+  items?: BillOfMaterialsItem[];
+}
+
+export interface CreateBillOfMaterialsRequest {
+  finished_product: number;
+  name?: string;
+  version?: number;
+  is_active?: boolean;
+  notes?: string;
+  items: Array<{
+    component: number;
+    quantity_per_unit: number | string;
+    waste_percent?: number | string;
+    notes?: string;
+  }>;
+}
+
+export type UpdateBillOfMaterialsRequest = Partial<CreateBillOfMaterialsRequest>;
+
+export type ProductionBatchStatus =
+  | 'DRAFT'
+  | 'SENT_TO_FACTORY'
+  | 'PARTIALLY_RECEIVED'
+  | 'COMPLETED'
+  | 'CANCELLED';
+
+export interface ProductionBatchComponent {
+  id: number;
+  component: number;
+  component_name: string;
+  component_barcode: string;
+  quantity_sent: number;
+  quantity_consumed: number;
+  in_factory_quantity: number;
+  sent_movement: number | null;
+  sent_movement_reference: string | null;
+}
+
+export interface ProductionBatch {
+  id: number;
+  batch_number: string;
+  sales_channel: number;
+  sales_channel_name: string;
+  finished_product: number;
+  finished_product_name: string;
+  bom: number;
+  company_id: number;
+  status: ProductionBatchStatus;
+  status_display: string;
+  planned_quantity: number;
+  received_quantity: number;
+  in_factory_quantity: number;
+  sent_at: string | null;
+  completed_at: string | null;
+  notes: string;
+  created_by: number | null;
+  created_at: string;
+  updated_at: string;
+  components?: ProductionBatchComponent[];
+}
+
+export interface SendToFactoryRequest {
+  sales_channel: number;
+  finished_product: number;
+  planned_quantity: number;
+  notes?: string;
+}
+
+export interface ReceiveFromFactoryRequest {
+  received_quantity: number;
+  reason?: 'PRODUCTION_RETURNED' | 'LAB_RECEIVED' | 'PARTIAL_PRODUCTION_RETURNED' | 'OTHER';
+  notes?: string;
+}
+
+export interface InFactorySummary {
+  component_id: number;
+  component_name: string;
+  component_barcode: string;
+  quantity_sent: number;
+  quantity_consumed: number;
+  in_factory_quantity: number;
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -997,6 +1115,8 @@ export type PaymentStatus = 'UNPAID' | 'PAID' | 'PARTIAL' | 'REFUNDED';
 
 export type OrderDiscountType = 'NONE' | 'FIXED' | 'PERCENTAGE';
 
+export type OrderOutcome = 'NONE' | 'CONFIRMED' | 'DELAYED' | 'CANCELLED';
+
 export interface OrderLine {
   id: number;
   product: number | null;
@@ -1040,14 +1160,43 @@ export interface OrderListItem {
   total: string;
   is_deleted: boolean;
   line_count: number;
+  // Outcome fields
+  outcome: OrderOutcome;
+  confirmed_at: string | null;
+  delay_date: string | null;
+  delay_reason: string;
+  cancellation_reason: string;
+  outcome_note: string;
+  outcome_changed_at: string | null;
   created_at: string;
   updated_at: string;
 }
 
 export interface OrderDetail extends OrderListItem {
   lines: OrderLine[];
+  // Billing details
+  billing_first_name: string;
+  billing_last_name: string;
+  billing_company: string;
+  billing_email: string;
+  billing_phone: string;
+  billing_address_1: string;
+  billing_address_2: string;
+  billing_city: string;
+  billing_state: string;
+  billing_postcode: string;
+  billing_country: string;
   billing_address: Record<string, string>;
+  // Shipping details
+  shipping_first_name: string;
+  shipping_last_name: string;
+  shipping_address_1: string;
+  shipping_city: string;
+  shipping_state: string;
+  shipping_postcode: string;
+  shipping_country: string;
   shipping_address: Record<string, string>;
+  // Notes & metadata
   customer_note: string;
   internal_note: string;
   wc_status: string;
@@ -1074,6 +1223,18 @@ export interface OrderEditRequest {
   discount_value?: string;
   customer_note?: string;
   internal_note?: string;
+  // Billing details (editable)
+  billing_first_name?: string;
+  billing_last_name?: string;
+  billing_company?: string;
+  billing_email?: string;
+  billing_phone?: string;
+  billing_address_1?: string;
+  billing_address_2?: string;
+  billing_city?: string;
+  billing_state?: string;
+  billing_postcode?: string;
+  billing_country?: string;
 }
 
 export interface OrderLogEntry {
@@ -1133,4 +1294,8 @@ export interface OrderSummary {
   woocommerce_count: number;
   pos_count: number;
   manual_count: number;
+  // Outcome counts
+  confirmed_count: number;
+  delayed_count: number;
+  cancelled_outcome: number;
 }

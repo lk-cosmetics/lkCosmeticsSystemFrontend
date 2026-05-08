@@ -25,6 +25,7 @@ interface POSCustomerSectionProps {
   onSkipClient: () => void;
   onClearClient: () => void;
   onAddClientClick: () => void;
+  canAddClient?: boolean;  /* ✨ Whether sales channel is selected */
 }
 
 export const POSCustomerSection = memo(function POSCustomerSection({
@@ -35,6 +36,7 @@ export const POSCustomerSection = memo(function POSCustomerSection({
   onSkipClient,
   onClearClient,
   onAddClientClick,
+  canAddClient = true,
 }: POSCustomerSectionProps) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -198,6 +200,8 @@ export const POSCustomerSection = memo(function POSCustomerSection({
           size="sm"
           className="h-8 text-xs gap-1.5 px-2.5"
           onClick={onAddClientClick}
+          disabled={!canAddClient}
+          title={!canAddClient ? '⚠️ Select a sales channel first' : 'Add new client'}
         >
           <UserPlus className="size-3" />
           Add
@@ -212,9 +216,16 @@ export const POSCustomerSection = memo(function POSCustomerSection({
           Skip
         </Button>
       </div>
-      <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
-        No customer selected
-      </Badge>
+      {!canAddClient && (
+        <div className="text-[10px] text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded px-2 py-1.5">
+          ⚠️ <strong>Channel Required:</strong> Select a sales channel above before adding a client
+        </div>
+      )}
+      {canAddClient && (
+        <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
+          No customer selected
+        </Badge>
+      )}
     </div>
   );
 });

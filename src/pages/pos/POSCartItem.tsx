@@ -8,14 +8,18 @@ interface POSCartItemProps {
   line: CartLine;
   onQty: (productId: number, delta: number) => void;
   onRemove: (productId: number) => void;
+  getPrice?: (product: CartLine['product']) => number;
 }
 
 export const POSCartItem = memo(function POSCartItem({
   line,
   onQty,
   onRemove,
+  getPrice,
 }: POSCartItemProps) {
-  const unitPrice = getEffectivePrice(line.product);
+  const originalPrice = getEffectivePrice(line.product);
+  const unitPrice = getPrice ? getPrice(line.product) : originalPrice;
+  const hasDiscount = unitPrice < originalPrice - 0.001;
   const lineTotal = fmtTND(line.quantity * unitPrice);
 
   return (
@@ -23,9 +27,18 @@ export const POSCartItem = memo(function POSCartItem({
       {/* Product Info */}
       <div className="flex-1 min-w-0">
         <p className="text-sm font-medium truncate">{line.product.name}</p>
-        <p className="text-[11px] text-muted-foreground">
-          {fmtTND(unitPrice)} TND
-        </p>
+
+        {/* Price display */}
+        <div className="flex items-center gap-1.5 mt-0.5">
+          <p className={`text-[11px] font-medium ${hasDiscount ? 'text-rose-600' : 'text-muted-foreground'}`}>
+            {fmtTND(unitPrice)} TND
+          </p>
+          {hasDiscount && (
+            <p className="text-[10px] text-muted-foreground line-through">
+              {fmtTND(originalPrice)}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Quantity Controls */}
@@ -54,11 +67,11 @@ export const POSCartItem = memo(function POSCartItem({
       </div>
 
       {/* Line Total */}
-      <span className="w-20 text-right text-sm font-semibold tabular-nums">
+      <span className={`w-20 text-right text-sm font-semibold tabular-nums ${hasDiscount ? 'text-rose-600' : ''}`}>
         {lineTotal}
       </span>
 
-      {/* Remove — always visible but subtle, fully visible on hover/touch */}
+      {/* Remove */}
       <Button
         variant="ghost"
         size="icon-xs"

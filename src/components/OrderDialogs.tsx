@@ -39,6 +39,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { getMediaUrl } from '@/utils/helpers';
+import { BillingSection } from './BillingSection';
 import type {
   OrderDetail, OrderEditRequest, OrderLogEntry, OrderDiscountType,
   ProductListItem, SalesChannel, OrderStatus,
@@ -79,14 +80,14 @@ function ResponsiveSheet({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={`${wide ? 'max-w-6xl w-[95vw]' : 'max-w-3xl'} max-h-[90vh] flex flex-col p-0 gap-0 ${className}`}>
-        <div className="sticky top-0 z-10 border-b bg-gradient-to-b from-background to-muted/50 px-8 py-5 flex-shrink-0">
+      <DialogContent className={`${wide ? 'max-w-5xl w-[96vw]' : 'max-w-2xl'} max-h-[88vh] flex flex-col p-0 gap-0 ${className}`}>
+        <div className="sticky top-0 z-10 border-b bg-muted/30 px-6 py-4 flex-shrink-0">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-bold">{title}</DialogTitle>
-            {description && <DialogDescription className="text-sm text-muted-foreground mt-1.5">{description}</DialogDescription>}
+            <DialogTitle className="text-xl font-bold">{title}</DialogTitle>
+            {description && <DialogDescription className="text-sm mt-1">{description}</DialogDescription>}
           </DialogHeader>
         </div>
-        <div className="flex-1 overflow-y-auto px-8 py-6">{children}</div>
+        <div className="flex-1 overflow-y-auto px-6 py-4">{children}</div>
       </DialogContent>
     </Dialog>
   );
@@ -656,6 +657,7 @@ interface OrderDetailDialogProps {
   onUpdateLine: (index: number, key: 'quantity' | 'unit_price', value: string) => void;
   onUpdateLineField: (index: number, key: 'product_name' | 'barcode', value: string) => void;
   onUpdateLineProduct: (index: number, productId: string) => void;
+  onUpdateBilling: (field: keyof OrderEditRequest, value: string) => void;
   onAddLine: () => void;
   onRemoveLine: (index: number) => void;
   onSaveEdit: () => void;
@@ -666,16 +668,19 @@ interface OrderDetailDialogProps {
   onRestore: () => void;
 }
 
-export function OrderDetailDialog({
-  open, onOpenChange, order, isDetailLoading,
-  isEditMode, editForm, editProducts, loadingEditProducts,
-  savingEdit, mutatingOrder,
-  onStatusChange, onEditModeChange,
-  onUpdateLine, onUpdateLineField, onUpdateLineProduct,
-  onAddLine, onRemoveLine, onSaveEdit,
-  onChangeDiscount, onChangeNote,
-  onOpenLogs, onDelete, onRestore,
-}: Readonly<OrderDetailDialogProps>) {
+export const OrderDetailDialog: React.FC<OrderDetailDialogProps> = (
+  props
+) => {
+  const {
+    open, onOpenChange, order, isDetailLoading,
+    isEditMode, editForm, editProducts, loadingEditProducts,
+    savingEdit, mutatingOrder,
+    onStatusChange, onEditModeChange,
+    onUpdateLine, onUpdateLineField, onUpdateLineProduct, onUpdateBilling,
+    onAddLine, onRemoveLine, onSaveEdit,
+    onChangeDiscount, onChangeNote,
+    onOpenLogs, onDelete, onRestore,
+  } = props;
   const title = order ? `Order ${order.order_number}` : 'Loading...';
   const desc = order?.external_order_id
     ? `WooCommerce #${order.external_order_id}`
@@ -720,6 +725,19 @@ export function OrderDetailDialog({
                       <CardContent><p className="text-sm text-muted-foreground leading-relaxed">{order.internal_note}</p></CardContent>
                     </Card>
                   )}
+
+                </div>
+
+                <div>
+                  <BillingSection
+                    order={order}
+                    editForm={editForm || { lines: [] }}
+                    isEditMode={false}
+                    onEditModeChange={onEditModeChange}
+                    onUpdateBilling={onUpdateBilling}
+                    onSaveEdit={onSaveEdit}
+                    isSaving={savingEdit}
+                  />
                 </div>
 
                 <div>
@@ -757,28 +775,43 @@ export function OrderDetailDialog({
 
           {/* Edit mode */}
           {isEditMode && editForm && (
-            <OrderEditMode
-              editForm={editForm}
-              editProducts={editProducts}
-              loadingEditProducts={loadingEditProducts}
-              currency={order.currency}
-              onUpdateLine={onUpdateLine}
-              onUpdateLineField={onUpdateLineField}
-              onUpdateLineProduct={onUpdateLineProduct}
-              onAddLine={onAddLine}
-              onRemoveLine={onRemoveLine}
-              onSaveEdit={onSaveEdit}
-              onCancel={() => onEditModeChange(false)}
-              onChangeDiscount={onChangeDiscount}
-              onChangeNote={onChangeNote}
-              isSaving={savingEdit}
-            />
+            <div className="space-y-6">
+              <OrderEditMode
+                editForm={editForm}
+                editProducts={editProducts}
+                loadingEditProducts={loadingEditProducts}
+                currency={order.currency}
+                onUpdateLine={onUpdateLine}
+                onUpdateLineField={onUpdateLineField}
+                onUpdateLineProduct={onUpdateLineProduct}
+                onAddLine={onAddLine}
+                onRemoveLine={onRemoveLine}
+                onSaveEdit={onSaveEdit}
+                onCancel={() => onEditModeChange(false)}
+                onChangeDiscount={onChangeDiscount}
+                onChangeNote={onChangeNote}
+                isSaving={savingEdit}
+              />
+
+              <Separator className="my-4" />
+
+              <BillingSection
+                order={order}
+                editForm={editForm}
+                isEditMode={true}
+                onEditModeChange={() => {}}
+                onUpdateBilling={onUpdateBilling}
+                onSaveEdit={onSaveEdit}
+                isSaving={savingEdit}
+              />
+
+            </div>
           )}
         </div>
       ) : null}
     </ResponsiveSheet>
   );
-}
+};
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
 /* SYNC DIALOG                                                               */

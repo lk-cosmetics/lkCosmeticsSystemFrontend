@@ -31,6 +31,7 @@ import {
   SidebarHeader,
 } from '@/components/ui/sidebar';
 import { useAuthStore } from '@/store/authStore';
+import { userService } from '@/services/user.service';
 
 // Static navigation data (doesn't depend on user state)
 const navMain = [
@@ -153,17 +154,24 @@ const navSecondary = [
 ];
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
-  // Hook must be called inside the component
   const { user: currentUser } = useAuthStore();
+  const [avatarPath, setAvatarPath] = React.useState<string>('/avatars/shadcn.jpg');
 
-  // Memoize user data to prevent unnecessary re-renders
+  React.useEffect(() => {
+    userService.getCurrentUser().then(details => {
+      if (details.profile?.avatar) {
+        setAvatarPath(details.profile.avatar);
+      }
+    }).catch(() => { /* keep default avatar on error */ });
+  }, []);
+
   const userData = React.useMemo(
     () => ({
       name: currentUser?.full_name || 'User',
       email: currentUser?.email || 'No Email',
-      avatar: '/avatars/shadcn.jpg',
+      avatar: avatarPath,
     }),
-    [currentUser?.full_name, currentUser?.email]
+    [currentUser?.full_name, currentUser?.email, avatarPath]
   );
 
   return (

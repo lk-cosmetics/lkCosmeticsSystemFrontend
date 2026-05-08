@@ -156,6 +156,40 @@ export const orderService = {
     return data;
   },
 
+  /** Confirm order — sets outcome=CONFIRMED. */
+  async confirmOrder(id: number, note?: string) {
+    const { data } = await apiClient.post<OrderDetail>(
+      `/api/v1/orders/${id}/confirm/`,
+      { note: note ?? '' }
+    );
+    return data;
+  },
+
+  /** Delay order — sets outcome=DELAYED with date and reason. */
+  async delayOrder(id: number, payload: {
+    delay_date: string;
+    delay_reason: string;
+    note?: string;
+  }) {
+    const { data } = await apiClient.post<OrderDetail>(
+      `/api/v1/orders/${id}/delay/`,
+      payload
+    );
+    return data;
+  },
+
+  /** Cancel order outcome — sets outcome=CANCELLED and status=CANCELLED. */
+  async cancelOrder(id: number, payload: {
+    cancellation_reason: string;
+    note?: string;
+  }) {
+    const { data } = await apiClient.post<OrderDetail>(
+      `/api/v1/orders/${id}/cancel-outcome/`,
+      payload
+    );
+    return data;
+  },
+
   /** Sync only selected WC orders by their IDs. */
   async syncSelectedFromWooCommerce(
     salesChannelId: number,

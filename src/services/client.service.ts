@@ -17,6 +17,20 @@ export interface ClientListParams {
   page_size?: number;
 }
 
+export interface CreateClientFromPOSRequest {
+  sales_channel: number;  // Required - brand is auto-extracted from this
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  phone?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  postcode?: string;
+  country?: string;
+  notes?: string;
+}
+
 export const clientService = {
   async getAll(params?: ClientListParams) {
     const { data } = await apiClient.get<PaginatedResponse<Client> | Client[]>(
@@ -33,6 +47,26 @@ export const clientService = {
 
   async create(payload: CreateClientRequest) {
     const { data } = await apiClient.post<Client>('/api/v1/clients/', payload);
+    return data;
+  },
+
+  /**
+   * Create client directly from POS page.
+   * 
+   * Best Practice:
+   *   - Brand is automatically extracted from sales_channel (no need to send brand_id)
+   *   - Source is automatically set to "POS"
+   *   - Company is automatically set from authenticated user context
+   *   - Created_by is automatically tracked
+   * 
+   * @param payload - Client data with required sales_channel
+   * @returns Created client object with auto-assigned brand and metadata
+   */
+  async createFromPOS(payload: CreateClientFromPOSRequest) {
+    const { data } = await apiClient.post<Client>(
+      '/api/v1/clients/create-from-pos/',
+      payload
+    );
     return data;
   },
 

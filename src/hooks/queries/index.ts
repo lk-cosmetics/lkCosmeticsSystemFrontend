@@ -21,3 +21,6 @@ export * from './useCategories';
 
 // Inventory hooks
 export * from './useInventory';
+
+// Profile hooks
+export * from './useProfile';

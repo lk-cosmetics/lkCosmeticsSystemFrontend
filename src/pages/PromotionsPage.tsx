@@ -495,6 +495,10 @@ export default function PromotionsPage() {
 
   const { user } = useAuthStore();
   const canManage = hasRole(user, 'SuperAdmin') || hasRole(user, 'Manager') || hasRole(user, 'CEO');
+  const posChannels = useMemo(
+    () => channels.filter(c => c.channel_type === 'POS'),
+    [channels],
+  );
 
   // Selection mode for Samsung Gallery-style behavior
   const selectionMode = useMemo(() => selectedItems.length > 0, [selectedItems.length]);
@@ -660,6 +664,16 @@ export default function PromotionsPage() {
     });
   }, []);
 
+  const toStartOfDay = useCallback((dateStr: string) => {
+    if (!dateStr) return '';
+    return `${dateStr}T00:00:00`;
+  }, []);
+
+  const toEndOfDay = useCallback((dateStr: string) => {
+    if (!dateStr) return '';
+    return `${dateStr}T23:59:59`;
+  }, []);
+
   const handleOpenCreate = useCallback(() => {
     resetForm();
     setIsCreateDialogOpen(true);
@@ -679,8 +693,8 @@ export default function PromotionsPage() {
         brand: formData.brand || undefined,
         discount_type: formData.discount_type,
         default_discount_value: Number.parseFloat(formData.default_discount_value),
-        start_date: formData.start_date,
-        end_date: formData.end_date,
+        start_date: toStartOfDay(formData.start_date),
+        end_date: toEndOfDay(formData.end_date),
         status: formData.status,
         is_active: formData.is_active,
         max_usage: formData.max_usage ? Number.parseInt(formData.max_usage, 10) : undefined,
@@ -709,8 +723,8 @@ export default function PromotionsPage() {
         brand: formData.brand || undefined,
         discount_type: formData.discount_type,
         default_discount_value: Number.parseFloat(formData.default_discount_value),
-        start_date: formData.start_date,
-        end_date: formData.end_date,
+        start_date: toStartOfDay(formData.start_date),
+        end_date: toEndOfDay(formData.end_date),
         status: formData.status,
         is_active: formData.is_active,
         max_usage: formData.max_usage ? Number.parseInt(formData.max_usage, 10) : undefined,
@@ -1214,7 +1228,7 @@ export default function PromotionsPage() {
 
             {/* Channel Rules Builder */}
             <ChannelRuleBuilder
-              channels={channels}
+              channels={posChannels}
               rules={formData.channel_rules}
               onChange={(rules) => setFormData(prev => ({ ...prev, channel_rules: rules }))}
               discountType={formData.discount_type}
@@ -1405,7 +1419,7 @@ export default function PromotionsPage() {
 
             {/* Channel Rules Builder */}
             <ChannelRuleBuilder
-              channels={channels}
+              channels={posChannels}
               rules={formData.channel_rules}
               onChange={(rules) => setFormData(prev => ({ ...prev, channel_rules: rules }))}
               discountType={formData.discount_type}

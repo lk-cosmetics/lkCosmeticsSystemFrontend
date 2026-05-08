@@ -23,6 +23,10 @@ import {
   PackagePlus,
   PackageMinus,
   Send,
+  Factory,
+  PackageCheck,
+  FlaskConical,
+  ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -72,9 +76,12 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Separator } from '@/components/ui/separator';
 import {
   storeInventoryService,
   inventoryMovementService,
+  billOfMaterialsService,
+  productionBatchService,
 } from '@/services/inventory.service';
 import { salesChannelService } from '@/services/salesChannel.service';
 import { productService } from '@/services/product.service';
@@ -85,6 +92,9 @@ import type {
   MovementSummary,
   ProductListItem,
   MovementType,
+  BillOfMaterials,
+  ProductionBatch,
+  InFactorySummary,
 } from '@/types';
 
 // ─── Helper ─────────────────────────────────────────────────────────────────
@@ -168,6 +178,14 @@ function movementBadge(type: string) {
       variant: 'destructive',
       icon: <AlertTriangle className="h-3 w-3 mr-1" />,
     },
+    SENT_TO_FACTORY: {
+      variant: 'outline',
+      icon: <Factory className="h-3 w-3 mr-1" />,
+    },
+    PRODUCTION_IN: {
+      variant: 'default',
+      icon: <PackageCheck className="h-3 w-3 mr-1" />,
+    },
   };
   const m = map[type] ?? { variant: 'secondary' as const, icon: null };
   return (
@@ -200,6 +218,42 @@ function statusBadge(status: string) {
       );
     default:
       return <Badge variant="outline">{status}</Badge>;
+  }
+}
+
+// ─── Production batch status badge ──────────────────────────────────────────
+function productionBatchStatusBadge(status: string) {
+  switch (status) {
+    case 'SENT_TO_FACTORY':
+      return (
+        <Badge className="flex items-center gap-1 w-fit bg-blue-100 text-blue-800 border-blue-200 hover:bg-blue-100">
+          <Factory className="h-3 w-3" /> Sent to Factory
+        </Badge>
+      );
+    case 'PARTIALLY_RECEIVED':
+      return (
+        <Badge className="flex items-center gap-1 w-fit bg-amber-100 text-amber-800 border-amber-200 hover:bg-amber-100">
+          <Clock className="h-3 w-3" /> Partially Received
+        </Badge>
+      );
+    case 'COMPLETED':
+      return (
+        <Badge className="flex items-center gap-1 w-fit bg-green-100 text-green-800 border-green-200 hover:bg-green-100">
+          <CheckCircle2 className="h-3 w-3" /> Completed
+        </Badge>
+      );
+    case 'CANCELLED':
+      return (
+        <Badge variant="destructive" className="flex items-center gap-1 w-fit">
+          <XCircle className="h-3 w-3" /> Cancelled
+        </Badge>
+      );
+    default:
+      return (
+        <Badge variant="outline" className="flex items-center gap-1 w-fit">
+          <Clock className="h-3 w-3" /> Draft
+        </Badge>
+      );
   }
 }
 
@@ -608,6 +662,9 @@ export default function InventoryPage() {
   const [products, setProducts] = useState<ProductListItem[]>([]);
   const [lowStock, setLowStock] = useState<SalesChannelInventory[]>([]);
   const [summary, setSummary] = useState<MovementSummary | null>(null);
+  const [boms, setBoms] = useState<BillOfMaterials[]>([]);
+  const [productionBatches, setProductionBatches] = useState<ProductionBatch[]>([]);
+  const [inFactory, setInFactory] = useState<InFactorySummary[]>([]);
 
   // ── Page UI ─────────────────────────────────────────────────────────────
   const [isLoading, setIsLoading] = useState(true);
@@ -693,6 +750,42 @@ export default function InventoryPage() {
     useState<InventoryMovement | null>(null);
   const [completeNotes, setCompleteNotes] = useState('');
 
+  // Manufacturing
+  const [bomDialog, setBomDialog] = useState(false);
+  const [editingBomId, setEditingBomId] = useState<number | null>(null);
+  const [bomForm, setBomForm] = useState({
+    finished_product: '',
+    name: '',
+    notes: '',
+    items: [
+      { component: '', quantity_per_unit: '1', notes: '' },
+    ],
+  });
+  const [quickPackagingForm, setQuickPackagingForm] = useState({
+    name: '',
+    barcode: '',
+  });
+  const [quickPackagingLoading, setQuickPackagingLoading] = useState(false);
+  const [sendFactoryDialog, setSendFactoryDialog] = useState(false);
+  const [sendFactoryForm, setSendFactoryForm] = useState({
+    sales_channel: '',
+    finished_product: '',
+    planned_quantity: '',
+    notes: '',
+  });
+  const [sendBomDetail, setSendBomDetail] = useState<BillOfMaterials | null>(null);
+  const [sendBomLoading, setSendBomLoading] = useState(false);
+  const [receiveFactoryDialog, setReceiveFactoryDialog] = useState(false);
+  const [receiveTarget, setReceiveTarget] = useState<ProductionBatch | null>(null);
+  const [receiveFactoryForm, setReceiveFactoryForm] = useState({
+    received_quantity: '',
+    reason: 'PRODUCTION_RETURNED' as 'PRODUCTION_RETURNED' | 'LAB_RECEIVED' | 'PARTIAL_PRODUCTION_RETURNED' | 'OTHER',
+    notes: '',
+  });
+  const [viewProductionOrder, setViewProductionOrder] = useState<ProductionBatch | null>(null);
+  const [cancelProductionTarget, setCancelProductionTarget] = useState<ProductionBatch | null>(null);
+  const [cancelProductionNotes, setCancelProductionNotes] = useState('');
+
   // Success / Error feedback
   const [successDialog, setSuccessDialog] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
@@ -704,7 +797,7 @@ export default function InventoryPage() {
     try {
       setIsLoading(true);
       setError(null);
-      const [inv, mov, ch, prod, low, sum] = await Promise.all([
+      const [inv, mov, ch, prod, low, sum, bomList, batches, factoryStock] = await Promise.all([
         storeInventoryService.getAllStoreInventories(),
         inventoryMovementService.getAllMovements(),
         salesChannelService.getAllChannels(),
@@ -713,6 +806,9 @@ export default function InventoryPage() {
           .getLowStockItems()
           .catch(() => [] as SalesChannelInventory[]),
         inventoryMovementService.getMovementSummary().catch(() => null),
+        billOfMaterialsService.getAll().catch(() => [] as BillOfMaterials[]),
+        productionBatchService.getAll().catch(() => [] as ProductionBatch[]),
+        productionBatchService.getInFactorySummary().catch(() => [] as InFactorySummary[]),
       ]);
       setInventories(inv);
       setMovements(mov);
@@ -720,6 +816,9 @@ export default function InventoryPage() {
       setProducts(prod);
       setLowStock(low);
       setSummary(sum);
+      setBoms(bomList);
+      setProductionBatches(batches);
+      setInFactory(factoryStock);
     } catch (err) {
       setError(extractErrorMessage(err));
     } finally {
@@ -784,6 +883,394 @@ export default function InventoryPage() {
     () => inventories.filter(i => i.is_out_of_stock).length,
     [inventories]
   );
+
+  const finishedProductOptions = useMemo(
+    () =>
+      products.filter(
+        p =>
+          (p.product_type === 'resell' || p.product_type === 'finished') &&
+          !p.is_pack &&
+          !p.is_deleted
+      ),
+    [products]
+  );
+
+  const componentProductOptions = useMemo(
+    () => products.filter(p => p.product_type === 'packaging' && !p.is_deleted),
+    [products]
+  );
+
+  const selectedBomFinishedProduct = useMemo(
+    () => products.find(p => p.id === Number(bomForm.finished_product)),
+    [products, bomForm.finished_product]
+  );
+
+  // Live preview: what components will be consumed/remain when receiving
+  const receivePreview = useMemo(() => {
+    if (!receiveTarget?.components?.length || !receiveFactoryForm.received_quantity) return null;
+    const newQty = Number(receiveFactoryForm.received_quantity);
+    if (newQty <= 0 || isNaN(newQty)) return null;
+    const newTotalReceived = receiveTarget.received_quantity + newQty;
+    return receiveTarget.components.map(comp => {
+      const newConsumedTotal = Math.min(
+        comp.quantity_sent,
+        Math.ceil(comp.quantity_sent * newTotalReceived / receiveTarget.planned_quantity)
+      );
+      return {
+        component_name: comp.component_name,
+        component_barcode: comp.component_barcode,
+        willConsume: newConsumedTotal - comp.quantity_consumed,
+        willRemain: comp.quantity_sent - newConsumedTotal,
+      };
+    });
+  }, [receiveTarget, receiveFactoryForm.received_quantity]);
+
+  // Live preview: what components will be sent to factory
+  const sendPreview = useMemo(() => {
+    if (!sendBomDetail?.items?.length || !sendFactoryForm.planned_quantity) return null;
+    const qty = Number(sendFactoryForm.planned_quantity);
+    if (qty <= 0 || isNaN(qty)) return null;
+    return sendBomDetail.items.map(item => ({
+      name: item.component_name ?? '',
+      barcode: item.component_barcode ?? '',
+      required: Math.ceil(
+        Number(item.quantity_per_unit) * qty * (1 + Number(item.waste_percent ?? 0) / 100)
+      ),
+    }));
+  }, [sendBomDetail, sendFactoryForm.planned_quantity]);
+
+  const populateBomForm = (bom: BillOfMaterials) => {
+    setEditingBomId(bom.id);
+    setBomForm({
+      finished_product: String(bom.finished_product),
+      name: bom.name ?? '',
+      notes: bom.notes ?? '',
+      items:
+        bom.items && bom.items.length > 0
+          ? bom.items.map(item => ({
+              component: String(item.component),
+              quantity_per_unit: String(item.quantity_per_unit),
+              notes: item.notes ?? '',
+            }))
+          : [{ component: '', quantity_per_unit: '1', notes: '' }],
+    });
+  };
+
+  const openBomDialog = async (bom?: BillOfMaterials) => {
+    setQuickPackagingForm({ name: '', barcode: '' });
+    if (bom) {
+      try {
+        const detail = await billOfMaterialsService.getById(bom.id);
+        populateBomForm(detail);
+      } catch (err) {
+        showError(extractErrorMessage(err));
+        return;
+      }
+      setBomDialog(true);
+      return;
+    }
+    setEditingBomId(null);
+    setBomForm({
+      finished_product: '',
+      name: '',
+      notes: '',
+      items: [
+        { component: '', quantity_per_unit: '1', notes: '' },
+      ],
+    });
+    setBomDialog(true);
+  };
+
+  const handleBomFinishedProductChange = async (value: string) => {
+    const existingBom = boms.find(bom => String(bom.finished_product) === value);
+    if (existingBom) {
+      try {
+        const detail = await billOfMaterialsService.getById(existingBom.id);
+        populateBomForm(detail);
+      } catch (err) {
+        showError(extractErrorMessage(err));
+      }
+      return;
+    }
+    setEditingBomId(null);
+    setBomForm(current => ({
+      ...current,
+      finished_product: value,
+      name: '',
+      notes: '',
+      items: [{ component: '', quantity_per_unit: '1', notes: '' }],
+    }));
+  };
+
+  const updateBomItem = (
+    index: number,
+    field: 'component' | 'quantity_per_unit' | 'notes',
+    value: string
+  ) => {
+    setBomForm(current => ({
+      ...current,
+      items: current.items.map((item, i) =>
+        i === index ? { ...item, [field]: value } : item
+      ),
+    }));
+  };
+
+  const addBomItem = () => {
+    setBomForm(current => ({
+      ...current,
+      items: [
+        ...current.items,
+        { component: '', quantity_per_unit: '1', notes: '' },
+      ],
+    }));
+  };
+
+  const removeBomItem = (index: number) => {
+    setBomForm(current => ({
+      ...current,
+      items: current.items.filter((_, i) => i !== index),
+    }));
+  };
+
+  const handleSaveBom = async () => {
+    const validItems = bomForm.items.filter(
+      item => item.component && Number(item.quantity_per_unit) > 0
+    );
+    if (!bomForm.finished_product || validItems.length === 0) return;
+    setActionLoading(true);
+    try {
+      const finishedProduct = products.find(
+        p => p.id === Number(bomForm.finished_product)
+      );
+      const payload = {
+        finished_product: Number(bomForm.finished_product),
+        name: bomForm.name || `${finishedProduct?.name ?? 'Product'} BOM`,
+        version:
+          boms.find(bom => bom.id === editingBomId)?.version ??
+          boms.find(bom => bom.finished_product === Number(bomForm.finished_product))?.version ??
+          1,
+        is_active: true,
+        notes: bomForm.notes,
+        items: validItems.map(item => ({
+          component: Number(item.component),
+          quantity_per_unit: item.quantity_per_unit,
+          waste_percent: '0',
+          notes: item.notes,
+        })),
+      };
+      const existingBom =
+        editingBomId !== null
+          ? boms.find(bom => bom.id === editingBomId)
+          : boms.find(bom => bom.finished_product === Number(bomForm.finished_product));
+      if (existingBom) {
+        await billOfMaterialsService.update(existingBom.id, payload);
+      } else {
+        await billOfMaterialsService.create(payload);
+      }
+      setBomDialog(false);
+      showSuccess(existingBom ? 'BOM updated.' : 'BOM created and linked to product.');
+      await fetchData();
+    } catch (err) {
+      showError(extractErrorMessage(err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCreatePackagingComponent = async () => {
+    const name = quickPackagingForm.name.trim();
+    if (!name) return;
+    setQuickPackagingLoading(true);
+    try {
+      const created = await productService.createProduct({
+        name,
+        barcode: quickPackagingForm.barcode.trim() || undefined,
+        product_type: 'packaging',
+        status: 'publish',
+        brand: selectedBomFinishedProduct?.brand ?? undefined,
+        purchase_price: '0.00',
+        sales_price: '0.00',
+        is_pack: false,
+      });
+      setProducts(current => [...current, created]);
+      setBomForm(current => {
+        const newItem = {
+          component: String(created.id),
+          quantity_per_unit: '1',
+          notes: '',
+        };
+        const hasSingleEmptyItem =
+          current.items.length === 1 && !current.items[0].component;
+        return {
+          ...current,
+          items: hasSingleEmptyItem ? [newItem] : [...current.items, newItem],
+        };
+      });
+      setQuickPackagingForm({ name: '', barcode: '' });
+    } catch (err) {
+      showError(extractErrorMessage(err));
+    } finally {
+      setQuickPackagingLoading(false);
+    }
+  };
+
+  const openSendFactoryDialog = (bom?: BillOfMaterials) => {
+    const defaultWooChannel = channels.find(
+      c => c.channel_type === 'WOOCOMMERCE' && c.is_active
+    );
+    setSendFactoryForm({
+      sales_channel: defaultWooChannel ? String(defaultWooChannel.id) : '',
+      finished_product: bom ? String(bom.finished_product) : '',
+      planned_quantity: '',
+      notes: '',
+    });
+    setSendBomDetail(null);
+    if (bom) {
+      void (async () => {
+        setSendBomLoading(true);
+        try {
+          const detail = await billOfMaterialsService.getById(bom.id);
+          setSendBomDetail(detail);
+        } catch {
+          // preview unavailable — not critical
+        } finally {
+          setSendBomLoading(false);
+        }
+      })();
+    }
+    setSendFactoryDialog(true);
+  };
+
+  const handleSendProductChange = async (value: string) => {
+    setSendFactoryForm(f => ({ ...f, finished_product: value }));
+    setSendBomDetail(null);
+    const matchingBom = boms.find(b => String(b.finished_product) === value && b.is_active);
+    if (!matchingBom) return;
+    setSendBomLoading(true);
+    try {
+      const detail = await billOfMaterialsService.getById(matchingBom.id);
+      setSendBomDetail(detail);
+    } catch {
+      // preview unavailable
+    } finally {
+      setSendBomLoading(false);
+    }
+  };
+
+  const handleSendToFactory = async () => {
+    if (
+      !sendFactoryForm.sales_channel ||
+      !sendFactoryForm.finished_product ||
+      !sendFactoryForm.planned_quantity
+    ) {
+      return;
+    }
+    setActionLoading(true);
+    try {
+      const batch = await productionBatchService.sendToFactory({
+        sales_channel: Number(sendFactoryForm.sales_channel),
+        finished_product: Number(sendFactoryForm.finished_product),
+        planned_quantity: Number(sendFactoryForm.planned_quantity),
+        notes: sendFactoryForm.notes,
+      });
+      setSendFactoryDialog(false);
+      showSuccess(`Components sent to factory. Batch ${batch.batch_number}.`);
+      await fetchData();
+    } catch (err) {
+      showError(extractErrorMessage(err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const openReceiveFactoryDialog = async (batch: ProductionBatch) => {
+    setActionLoading(true);
+    try {
+      const detail = await productionBatchService.getById(batch.id);
+      setReceiveTarget(detail);
+      setReceiveFactoryForm({
+        received_quantity: '',
+        reason: detail.in_factory_quantity === detail.planned_quantity
+          ? 'PRODUCTION_RETURNED'
+          : 'PARTIAL_PRODUCTION_RETURNED',
+        notes: '',
+      });
+      setReceiveFactoryDialog(true);
+    } catch (err) {
+      showError(extractErrorMessage(err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const openProductionOrderDetail = async (batch: ProductionBatch) => {
+    setActionLoading(true);
+    try {
+      const detail = await productionBatchService.getById(batch.id);
+      setViewProductionOrder(detail);
+    } catch (err) {
+      showError(extractErrorMessage(err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReceiveFromFactory = async () => {
+    if (!receiveTarget || !receiveFactoryForm.received_quantity) return;
+    setActionLoading(true);
+    try {
+      const batch = await productionBatchService.receiveFromFactory(
+        receiveTarget.id,
+        {
+          received_quantity: Number(receiveFactoryForm.received_quantity),
+          reason: receiveFactoryForm.reason,
+          notes: receiveFactoryForm.notes,
+        }
+      );
+      setReceiveFactoryDialog(false);
+      showSuccess(`Finished products received. Batch ${batch.batch_number}.`);
+      await fetchData();
+    } catch (err) {
+      showError(extractErrorMessage(err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleUpdateProductionNotes = async () => {
+    if (!viewProductionOrder) return;
+    setActionLoading(true);
+    try {
+      const updated = await productionBatchService.update(viewProductionOrder.id, {
+        notes: viewProductionOrder.notes,
+      });
+      setViewProductionOrder(updated);
+      showSuccess('Production order updated.');
+      await fetchData();
+    } catch (err) {
+      showError(extractErrorMessage(err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleCancelProductionOrder = async () => {
+    if (!cancelProductionTarget) return;
+    setActionLoading(true);
+    try {
+      await productionBatchService.cancel(cancelProductionTarget.id, {
+        notes: cancelProductionNotes,
+      });
+      setCancelProductionTarget(null);
+      setCancelProductionNotes('');
+      showSuccess('Production order cancelled and remaining components returned to stock.');
+      await fetchData();
+    } catch (err) {
+      showError(extractErrorMessage(err));
+    } finally {
+      setActionLoading(false);
+    }
+  };
 
   // ═══════════════════════════════════════════════════════════════════════
   // ACTION HANDLERS
@@ -1068,6 +1555,9 @@ export default function InventoryPage() {
           <Button size="sm" variant="outline" onClick={openMovementDialog}>
             <ArrowUpDown className="h-4 w-4 mr-1.5" /> Record Movement
           </Button>
+          <Button size="sm" variant="outline" onClick={() => void openBomDialog()}>
+            <PackagePlus className="h-4 w-4 mr-1.5" /> New BOM
+          </Button>
           <Button variant="ghost" size="sm" onClick={fetchData}>
             <RefreshCw className="h-4 w-4" />
           </Button>
@@ -1141,6 +1631,9 @@ export default function InventoryPage() {
           <TabsTrigger value="low-stock">
             <AlertTriangle className="h-4 w-4 mr-1.5" /> Low Stock (
             {lowStock.length})
+          </TabsTrigger>
+          <TabsTrigger value="manufacturing">
+            <PackagePlus className="h-4 w-4 mr-1.5" /> Manufacturing
           </TabsTrigger>
         </TabsList>
 
@@ -1233,19 +1726,38 @@ export default function InventoryPage() {
                 {filteredInventories.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={8} className="text-center py-12">
-                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                        <Package className="h-10 w-10 opacity-30" />
-                        <p className="text-sm">No inventory records found</p>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="mt-1"
-                          onClick={openAddDialog}
-                        >
-                          <Plus className="h-4 w-4 mr-1" /> Add your first stock
-                          record
-                        </Button>
-                      </div>
+                      {searchQuery || channelFilter !== 'all' || stockFilter !== 'all' ? (
+                        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                          <Filter className="h-10 w-10 opacity-30" />
+                          <p className="text-sm font-medium">No items match the current filters</p>
+                          <p className="text-xs">Try adjusting or clearing your filters</p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-1"
+                            onClick={() => {
+                              setSearchQuery('');
+                              setChannelFilter('all');
+                              setStockFilter('all');
+                            }}
+                          >
+                            <Filter className="h-4 w-4 mr-1" /> Clear filters
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                          <Package className="h-10 w-10 opacity-30" />
+                          <p className="text-sm">No inventory records found</p>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-1"
+                            onClick={openAddDialog}
+                          >
+                            <Plus className="h-4 w-4 mr-1" /> Add your first stock record
+                          </Button>
+                        </div>
+                      )}
                     </TableCell>
                   </TableRow>
                 ) : (
@@ -1508,6 +2020,276 @@ export default function InventoryPage() {
                       </TableCell>
                     </TableRow>
                   ))
+                )}
+              </TableBody>
+            </Table>
+          </Card>
+        </TabsContent>
+
+        {/* ── TAB: Manufacturing ──────────────────────────────────────── */}
+        <TabsContent value="manufacturing" className="mt-4 space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Factory className="h-5 w-5 text-blue-600" /> Production Orders
+              </h2>
+              <p className="text-sm text-muted-foreground">
+                Send BOM components to your factory/lab, track what&apos;s in production, and receive finished products back into warehouse stock.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => void openBomDialog()}>
+                <PackagePlus className="h-4 w-4 mr-1.5" /> Create BOM
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => openSendFactoryDialog()}>
+                <Send className="h-4 w-4 mr-1.5" /> New Production Order
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Card className="p-4 flex items-start gap-3">
+              <div className="p-2 rounded-md bg-blue-500/10">
+                <PackagePlus className="h-5 w-5 text-blue-500" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Bills of Materials</p>
+                <p className="text-2xl font-semibold">{boms.length}</p>
+              </div>
+            </Card>
+            <Card className="p-4 flex items-start gap-3">
+              <div className="p-2 rounded-md bg-amber-500/10">
+                <Clock className="h-5 w-5 text-amber-500" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Orders In Progress</p>
+                <p className="text-2xl font-semibold">
+                  {productionBatches.filter(b =>
+                    ['SENT_TO_FACTORY', 'PARTIALLY_RECEIVED'].includes(b.status)
+                  ).length}
+                </p>
+              </div>
+            </Card>
+            <Card className="p-4 flex items-start gap-3">
+              <div className="p-2 rounded-md bg-orange-500/10">
+                <FlaskConical className="h-5 w-5 text-orange-500" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Components at Factory/Lab</p>
+                <p className="text-2xl font-semibold">
+                  {inFactory.reduce((sum, row) => sum + row.in_factory_quantity, 0)}
+                </p>
+              </div>
+            </Card>
+            <Card className="p-4 flex items-start gap-3">
+              <div className="p-2 rounded-md bg-green-500/10">
+                <CheckCircle2 className="h-5 w-5 text-green-500" />
+              </div>
+              <div>
+                <p className="text-sm text-muted-foreground">Completed Orders</p>
+                <p className="text-2xl font-semibold">
+                  {productionBatches.filter(b => b.status === 'COMPLETED').length}
+                </p>
+              </div>
+            </Card>
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <Card>
+              <div className="p-4 border-b">
+                <h2 className="font-semibold">Bills of Materials</h2>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Finished Product</TableHead>
+                    <TableHead>Version</TableHead>
+                    <TableHead>Components</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="w-10" />
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {boms.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-10 text-muted-foreground">
+                        No BOMs yet
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    boms.map(bom => (
+                      <TableRow key={bom.id}>
+                        <TableCell>
+                          <div className="font-medium text-sm">{bom.finished_product_name}</div>
+                          <div className="text-xs text-muted-foreground">{bom.finished_product_barcode || 'No barcode'}</div>
+                        </TableCell>
+                        <TableCell>v{bom.version}</TableCell>
+                        <TableCell>{bom.items_count}</TableCell>
+                        <TableCell>
+                          <Badge variant={bom.is_active ? 'default' : 'secondary'}>
+                            {bom.is_active ? 'Active' : 'Inactive'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex justify-end gap-1">
+                            <Button size="icon" variant="ghost" onClick={() => void openBomDialog(bom)}>
+                              <Pencil className="h-4 w-4" />
+                            </Button>
+                            <Button size="icon" variant="ghost" onClick={() => openSendFactoryDialog(bom)}>
+                              <Send className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </Card>
+
+            <Card>
+              <div className="p-4 border-b">
+                <h2 className="font-semibold">In Factory Stock</h2>
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Component</TableHead>
+                    <TableHead className="text-right">Sent</TableHead>
+                    <TableHead className="text-right">Consumed</TableHead>
+                    <TableHead className="text-right">In Factory</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {inFactory.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={4} className="text-center py-10 text-muted-foreground">
+                        No components are currently in factory
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    inFactory.map(row => (
+                      <TableRow key={row.component_id}>
+                        <TableCell>
+                          <div className="font-medium text-sm">{row.component_name}</div>
+                          <div className="text-xs text-muted-foreground">{row.component_barcode || 'No barcode'}</div>
+                        </TableCell>
+                        <TableCell className="text-right">{row.quantity_sent}</TableCell>
+                        <TableCell className="text-right">{row.quantity_consumed}</TableCell>
+                        <TableCell className="text-right font-medium">{row.in_factory_quantity}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </Card>
+          </div>
+
+          <Card>
+            <div className="p-4 border-b flex items-center justify-between">
+              <h2 className="font-semibold">Production Orders</h2>
+              <p className="text-xs text-muted-foreground">{productionBatches.length} total</p>
+            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Batch</TableHead>
+                  <TableHead>Finished Product</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Planned</TableHead>
+                  <TableHead className="text-right">Received</TableHead>
+                  <TableHead className="text-right">At Factory/Lab</TableHead>
+                  <TableHead className="text-right">Progress</TableHead>
+                  <TableHead className="w-[120px]" />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {productionBatches.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center py-12">
+                      <div className="flex flex-col items-center gap-2 text-muted-foreground">
+                        <Factory className="h-10 w-10 opacity-30" />
+                        <p className="text-sm">No production orders yet</p>
+                        <Button size="sm" variant="outline" className="mt-1" onClick={() => openSendFactoryDialog()}>
+                          <Send className="h-4 w-4 mr-1" /> Create first order
+                        </Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  productionBatches.map(batch => {
+                    const pct = batch.planned_quantity > 0
+                      ? Math.round((batch.received_quantity / batch.planned_quantity) * 100)
+                      : 0;
+                    return (
+                      <TableRow key={batch.id} className="group">
+                        <TableCell>
+                          <div className="font-mono text-xs text-muted-foreground">{batch.batch_number}</div>
+                          <div className="text-xs text-muted-foreground mt-0.5">{batch.sales_channel_name}</div>
+                        </TableCell>
+                        <TableCell>
+                          <span className="font-medium text-sm">{batch.finished_product_name}</span>
+                        </TableCell>
+                        <TableCell>{productionBatchStatusBadge(batch.status)}</TableCell>
+                        <TableCell className="text-right font-mono text-sm">{batch.planned_quantity}</TableCell>
+                        <TableCell className="text-right font-mono text-sm text-green-600 font-semibold">
+                          {batch.received_quantity}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-sm text-amber-600 font-semibold">
+                          {batch.in_factory_quantity}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex flex-col items-end gap-1">
+                            <span className="text-xs font-mono">{pct}%</span>
+                            <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div
+                                className={`h-full rounded-full transition-all ${
+                                  batch.status === 'COMPLETED' ? 'bg-green-500' :
+                                  batch.status === 'CANCELLED' ? 'bg-red-400' : 'bg-amber-400'
+                                }`}
+                                style={{ width: `${pct}%` }}
+                              />
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              title="View details"
+                              onClick={() => void openProductionOrderDetail(batch)}
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            {batch.in_factory_quantity > 0 && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                title="Receive finished products"
+                                onClick={() => void openReceiveFactoryDialog(batch)}
+                              >
+                                <PackageCheck className="h-4 w-4 text-green-600" />
+                              </Button>
+                            )}
+                            {batch.received_quantity === 0 && batch.status !== 'CANCELLED' && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                title="Cancel order"
+                                onClick={() => {
+                                  setCancelProductionTarget(batch);
+                                  setCancelProductionNotes('');
+                                }}
+                              >
+                                <Trash2 className="h-4 w-4 text-destructive" />
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
@@ -2293,6 +3075,697 @@ export default function InventoryPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* ── Create BOM Dialog ─────────────────────────────────────────── */}
+      <Dialog open={bomDialog} onOpenChange={setBomDialog}>
+        <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-3xl lg:max-w-5xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackagePlus className="h-5 w-5" /> {editingBomId ? 'Update BOM' : 'Create BOM'}
+            </DialogTitle>
+            <DialogDescription>
+              Link a finished product to packaging products needed to produce one unit.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 mt-2">
+            <div className="grid gap-3 md:grid-cols-2">
+              <div>
+                <Label>
+                  Finished product <span className="text-destructive">*</span>
+                </Label>
+                <Select
+                  value={bomForm.finished_product}
+                  onValueChange={value => void handleBomFinishedProductChange(value)}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Select resell product" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {finishedProductOptions.map(product => (
+                      <SelectItem key={product.id} value={String(product.id)}>
+                        {product.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>BOM name</Label>
+                <Input
+                  className="mt-1"
+                  placeholder="Optional"
+                  value={bomForm.name}
+                  onChange={e => setBomForm({ ...bomForm, name: e.target.value })}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-md border p-4">
+              <div className="grid gap-3 lg:grid-cols-[1fr_0.7fr_auto] lg:items-end">
+                <div>
+                  <Label>New packaging product</Label>
+                  <Input
+                    className="mt-1"
+                    placeholder="Bottle, cap, label..."
+                    value={quickPackagingForm.name}
+                    onChange={e =>
+                      setQuickPackagingForm({
+                        ...quickPackagingForm,
+                        name: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>Barcode</Label>
+                  <Input
+                    className="mt-1"
+                    placeholder="Optional"
+                    value={quickPackagingForm.barcode}
+                    onChange={e =>
+                      setQuickPackagingForm({
+                        ...quickPackagingForm,
+                        barcode: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full lg:w-auto"
+                  onClick={handleCreatePackagingComponent}
+                  disabled={quickPackagingLoading || !quickPackagingForm.name.trim()}
+                >
+                  {quickPackagingLoading ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Plus className="h-4 w-4 mr-1" />
+                  )}
+                  Add Packaging
+                </Button>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label>Components</Label>
+                <Button type="button" variant="outline" size="sm" onClick={addBomItem}>
+                  <Plus className="h-4 w-4 mr-1" /> Add Component
+                </Button>
+              </div>
+              {bomForm.items.map((item, index) => (
+                <div
+                  key={index}
+                  className="grid gap-3 rounded-md border p-3 md:grid-cols-[minmax(0,1fr)_150px_auto] md:items-end"
+                >
+                  <div>
+                    <Label className="text-xs">Packaging component</Label>
+                    <Select
+                      value={item.component}
+                      onValueChange={value => updateBomItem(index, 'component', value)}
+                    >
+                      <SelectTrigger className="mt-1">
+                        <SelectValue placeholder="Bottle, cap, label..." />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {componentProductOptions
+                          .filter(product => String(product.id) !== bomForm.finished_product)
+                          .map(product => (
+                            <SelectItem key={product.id} value={String(product.id)}>
+                              {product.name}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div>
+                    <Label className="text-xs">Qty / unit</Label>
+                    <Input
+                      type="number"
+                      min="0.001"
+                      step="0.001"
+                      className="mt-1"
+                      value={item.quantity_per_unit}
+                      onChange={e => updateBomItem(index, 'quantity_per_unit', e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="justify-self-end"
+                    onClick={() => removeBomItem(index)}
+                    disabled={bomForm.items.length === 1}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+
+            <div>
+              <Label>Notes</Label>
+              <Textarea
+                className="mt-1"
+                rows={2}
+                value={bomForm.notes}
+                onChange={e => setBomForm({ ...bomForm, notes: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-5">
+            <Button variant="outline" onClick={() => setBomDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSaveBom}
+              disabled={
+                actionLoading ||
+                !bomForm.finished_product ||
+                !bomForm.items.some(item => item.component && Number(item.quantity_per_unit) > 0)
+              }
+            >
+              {actionLoading ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <PackagePlus className="h-4 w-4 mr-1" />
+              )}
+              {editingBomId ? 'Update BOM' : 'Save BOM'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── New Production Order Dialog ───────────────────────────────── */}
+      <Dialog open={sendFactoryDialog} onOpenChange={setSendFactoryDialog}>
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Factory className="h-5 w-5 text-blue-600" /> New Production Order
+            </DialogTitle>
+            <DialogDescription>
+              BOM components will be deducted from warehouse stock and tracked as factory/lab balance.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Warehouse / Channel <span className="text-destructive">*</span></Label>
+                <Select
+                  value={sendFactoryForm.sales_channel}
+                  onValueChange={value => setSendFactoryForm({ ...sendFactoryForm, sales_channel: value })}
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Select channel" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {channels.filter(ch => ch.is_active).map(ch => (
+                      <SelectItem key={ch.id} value={String(ch.id)}>
+                        {ch.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Quantity to produce <span className="text-destructive">*</span></Label>
+                <Input
+                  type="number"
+                  min="1"
+                  className="mt-1"
+                  placeholder="e.g. 100"
+                  value={sendFactoryForm.planned_quantity}
+                  onChange={e => setSendFactoryForm({ ...sendFactoryForm, planned_quantity: e.target.value })}
+                />
+              </div>
+            </div>
+            <div>
+              <Label>Finished product <span className="text-destructive">*</span></Label>
+              <Select
+                value={sendFactoryForm.finished_product}
+                onValueChange={value => void handleSendProductChange(value)}
+              >
+                <SelectTrigger className="mt-1">
+                  <SelectValue placeholder="Select product with active BOM" />
+                </SelectTrigger>
+                <SelectContent>
+                  {boms.filter(bom => bom.is_active).map(bom => (
+                    <SelectItem key={bom.id} value={String(bom.finished_product)}>
+                      {bom.finished_product_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Component preview */}
+            {sendFactoryForm.finished_product && (
+              <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide flex items-center gap-1.5">
+                  <ChevronRight className="h-3 w-3" /> Components that will be sent to factory
+                </p>
+                {sendBomLoading ? (
+                  <div className="flex items-center gap-2 text-muted-foreground text-xs py-1">
+                    <Loader2 className="h-3 w-3 animate-spin" /> Loading BOM...
+                  </div>
+                ) : sendPreview?.length ? (
+                  <div className="rounded border bg-background overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b bg-muted/50">
+                          <th className="text-left p-2 font-medium text-muted-foreground">Component</th>
+                          <th className="text-right p-2 font-medium text-muted-foreground">Qty to Send</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sendPreview.map((row, i) => (
+                          <tr key={i} className="border-b last:border-0">
+                            <td className="p-2">
+                              <span className="font-medium">{row.name}</span>
+                              {row.barcode && <span className="text-muted-foreground ml-1">({row.barcode})</span>}
+                            </td>
+                            <td className="p-2 text-right font-mono font-semibold text-blue-700">{row.required}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : sendBomDetail ? (
+                  <p className="text-xs text-muted-foreground">BOM has no components configured.</p>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Enter a quantity to see component breakdown.</p>
+                )}
+              </div>
+            )}
+
+            <div>
+              <Label>Notes</Label>
+              <Textarea
+                className="mt-1"
+                rows={2}
+                placeholder="Optional — order notes, destination details..."
+                value={sendFactoryForm.notes}
+                onChange={e => setSendFactoryForm({ ...sendFactoryForm, notes: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setSendFactoryDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSendToFactory}
+              disabled={
+                actionLoading ||
+                !sendFactoryForm.sales_channel ||
+                !sendFactoryForm.finished_product ||
+                !sendFactoryForm.planned_quantity
+              }
+            >
+              {actionLoading ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4 mr-1" />
+              )}
+              Send to Factory
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Receive Finished Products Dialog ─────────────────────────── */}
+      <Dialog open={receiveFactoryDialog} onOpenChange={setReceiveFactoryDialog}>
+        <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <PackageCheck className="h-5 w-5 text-green-600" /> Receive Finished Products
+            </DialogTitle>
+            <DialogDescription>
+              Finished product stock will increase. Components will be marked as consumed from the factory/lab balance.
+            </DialogDescription>
+          </DialogHeader>
+
+          {receiveTarget && (
+            <div className="rounded-md border bg-muted/30 p-3 text-sm space-y-1">
+              <div className="font-semibold">{receiveTarget.finished_product_name}</div>
+              <div className="flex gap-4 text-xs text-muted-foreground">
+                <span>Batch: <span className="font-mono">{receiveTarget.batch_number}</span></span>
+                <span>Planned: <span className="font-semibold">{receiveTarget.planned_quantity}</span></span>
+                <span>Already received: <span className="font-semibold text-green-600">{receiveTarget.received_quantity}</span></span>
+                <span>Still at factory: <span className="font-semibold text-amber-600">{receiveTarget.in_factory_quantity}</span></span>
+              </div>
+            </div>
+          )}
+
+          <div className="space-y-4 mt-1">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Quantity to receive <span className="text-destructive">*</span></Label>
+                <Input
+                  type="number"
+                  min="1"
+                  max={receiveTarget?.in_factory_quantity}
+                  className="mt-1"
+                  placeholder={`Max ${receiveTarget?.in_factory_quantity ?? ''}`}
+                  value={receiveFactoryForm.received_quantity}
+                  onChange={e => setReceiveFactoryForm({ ...receiveFactoryForm, received_quantity: e.target.value })}
+                />
+                {receiveTarget && receiveFactoryForm.received_quantity &&
+                  Number(receiveFactoryForm.received_quantity) > receiveTarget.in_factory_quantity && (
+                  <p className="text-xs text-destructive mt-1">
+                    Cannot exceed remaining quantity ({receiveTarget.in_factory_quantity}).
+                  </p>
+                )}
+              </div>
+              <div>
+                <Label>Reason <span className="text-destructive">*</span></Label>
+                <Select
+                  value={receiveFactoryForm.reason}
+                  onValueChange={value =>
+                    setReceiveFactoryForm({
+                      ...receiveFactoryForm,
+                      reason: value as typeof receiveFactoryForm.reason,
+                    })
+                  }
+                >
+                  <SelectTrigger className="mt-1">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="PRODUCTION_RETURNED">Production order returned from factory</SelectItem>
+                    <SelectItem value="LAB_RECEIVED">Received from laboratory</SelectItem>
+                    <SelectItem value="PARTIAL_PRODUCTION_RETURNED">Partial production returned</SelectItem>
+                    <SelectItem value="OTHER">Other</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {/* Live preview */}
+            {receivePreview && receiveFactoryForm.received_quantity &&
+              Number(receiveFactoryForm.received_quantity) > 0 &&
+              Number(receiveFactoryForm.received_quantity) <= (receiveTarget?.in_factory_quantity ?? 0) && (
+              <div className="rounded-md border bg-green-50 border-green-200 p-3 space-y-3">
+                <p className="text-xs font-semibold text-green-800 uppercase tracking-wide flex items-center gap-1.5">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> What will happen when you confirm
+                </p>
+
+                <div className="flex items-center gap-2 text-sm">
+                  <PackageCheck className="h-4 w-4 text-green-600 shrink-0" />
+                  <span className="text-green-800 font-medium">
+                    Finished product stock: <span className="font-bold">+{receiveFactoryForm.received_quantity} units</span>
+                  </span>
+                </div>
+
+                {receivePreview.length > 0 && (
+                  <>
+                    <Separator className="bg-green-200" />
+                    <p className="text-xs font-medium text-green-700">Components consumed from factory/lab balance:</p>
+                    <div className="rounded border border-green-200 bg-white overflow-hidden">
+                      <table className="w-full text-xs">
+                        <thead>
+                          <tr className="border-b bg-green-100/60">
+                            <th className="text-left p-2 font-medium text-green-800">Component</th>
+                            <th className="text-right p-2 font-medium text-green-800">Will Consume</th>
+                            <th className="text-right p-2 font-medium text-green-800">Will Remain</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {receivePreview.map((row, i) => (
+                            <tr key={i} className="border-b last:border-0">
+                              <td className="p-2 font-medium">
+                                {row.component_name}
+                                {row.component_barcode && (
+                                  <span className="text-muted-foreground ml-1 font-normal">
+                                    ({row.component_barcode})
+                                  </span>
+                                )}
+                              </td>
+                              <td className="p-2 text-right font-mono font-semibold text-orange-700">
+                                -{row.willConsume}
+                              </td>
+                              <td className={`p-2 text-right font-mono font-semibold ${row.willRemain > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                                {row.willRemain}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            <div>
+              <Label>Notes</Label>
+              <Textarea
+                className="mt-1"
+                rows={2}
+                placeholder="Optional notes about this receipt..."
+                value={receiveFactoryForm.notes}
+                onChange={e => setReceiveFactoryForm({ ...receiveFactoryForm, notes: e.target.value })}
+              />
+            </div>
+          </div>
+          <DialogFooter className="mt-4">
+            <Button variant="outline" onClick={() => setReceiveFactoryDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleReceiveFromFactory}
+              disabled={
+                actionLoading ||
+                !receiveFactoryForm.received_quantity ||
+                Number(receiveFactoryForm.received_quantity) <= 0 ||
+                Number(receiveFactoryForm.received_quantity) > (receiveTarget?.in_factory_quantity ?? 0)
+              }
+            >
+              {actionLoading ? (
+                <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+              ) : (
+                <PackageCheck className="h-4 w-4 mr-1" />
+              )}
+              Confirm Receipt
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Production Order Detail Dialog ────────────────────────────── */}
+      <Dialog open={!!viewProductionOrder} onOpenChange={() => setViewProductionOrder(null)}>
+        <DialogContent className="w-[calc(100vw-1rem)] sm:max-w-3xl max-h-[92vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Factory className="h-5 w-5 text-blue-600" /> Production Order Detail
+            </DialogTitle>
+            <DialogDescription className="font-mono">
+              {viewProductionOrder?.batch_number}
+            </DialogDescription>
+          </DialogHeader>
+          {viewProductionOrder && (() => {
+            const pct = viewProductionOrder.planned_quantity > 0
+              ? Math.round((viewProductionOrder.received_quantity / viewProductionOrder.planned_quantity) * 100)
+              : 0;
+            return (
+              <div className="space-y-5">
+                {/* Status + summary */}
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-md border p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Status</p>
+                    {productionBatchStatusBadge(viewProductionOrder.status)}
+                  </div>
+                  <div className="rounded-md border p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Planned Production</p>
+                    <p className="text-xl font-bold">{viewProductionOrder.planned_quantity}</p>
+                    <p className="text-xs text-muted-foreground">{viewProductionOrder.finished_product_name}</p>
+                  </div>
+                  <div className="rounded-md border bg-green-50 border-green-200 p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Received to Warehouse</p>
+                    <p className="text-xl font-bold text-green-700">{viewProductionOrder.received_quantity}</p>
+                    <p className="text-xs text-green-600">Finished products in stock</p>
+                  </div>
+                  <div className="rounded-md border bg-amber-50 border-amber-200 p-3 space-y-1">
+                    <p className="text-xs text-muted-foreground">Still at Factory/Lab</p>
+                    <p className="text-xl font-bold text-amber-700">{viewProductionOrder.in_factory_quantity}</p>
+                    <p className="text-xs text-amber-600">Not yet returned</p>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>Production progress</span>
+                    <span className="font-mono font-semibold">{pct}%</span>
+                  </div>
+                  <div className="h-2.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all ${
+                        viewProductionOrder.status === 'COMPLETED' ? 'bg-green-500' :
+                        viewProductionOrder.status === 'CANCELLED' ? 'bg-red-400' : 'bg-amber-400'
+                      }`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{viewProductionOrder.received_quantity} received</span>
+                    <span>{viewProductionOrder.in_factory_quantity} remaining</span>
+                  </div>
+                </div>
+
+                <Separator />
+
+                {/* Components breakdown */}
+                <div>
+                  <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                    <FlaskConical className="h-4 w-4 text-orange-500" />
+                    Component Tracking — Factory/Lab Balance
+                  </h3>
+                  <div className="rounded-md border overflow-hidden">
+                    <Table>
+                      <TableHeader>
+                        <TableRow className="bg-muted/30">
+                          <TableHead>Component</TableHead>
+                          <TableHead className="text-right">Sent to Factory</TableHead>
+                          <TableHead className="text-right text-orange-700">Consumed</TableHead>
+                          <TableHead className="text-right text-amber-700">Still at Factory/Lab</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(viewProductionOrder.components ?? []).length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center py-6 text-muted-foreground text-sm">
+                              No component data available
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          (viewProductionOrder.components ?? []).map(component => (
+                            <TableRow key={component.id}>
+                              <TableCell>
+                                <div className="font-medium text-sm">{component.component_name}</div>
+                                <div className="text-xs text-muted-foreground font-mono">
+                                  {component.component_barcode || '—'}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-sm">
+                                {component.quantity_sent}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-sm text-orange-700 font-semibold">
+                                {component.quantity_consumed}
+                              </TableCell>
+                              <TableCell className="text-right font-mono text-sm">
+                                <span className={`font-semibold ${component.in_factory_quantity > 0 ? 'text-amber-600' : 'text-muted-foreground'}`}>
+                                  {component.in_factory_quantity}
+                                </span>
+                              </TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  {(viewProductionOrder.components ?? []).length > 0 && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Consumption is calculated proportionally as finished products are received.
+                    </p>
+                  )}
+                </div>
+
+                <Separator />
+
+                {/* Notes */}
+                <div>
+                  <Label>Order Notes</Label>
+                  <Textarea
+                    className="mt-1"
+                    rows={3}
+                    placeholder="Add notes about this production order..."
+                    value={viewProductionOrder.notes}
+                    onChange={e =>
+                      setViewProductionOrder({
+                        ...viewProductionOrder,
+                        notes: e.target.value,
+                      })
+                    }
+                  />
+                </div>
+
+                <DialogFooter className="gap-2">
+                  <Button variant="outline" onClick={() => setViewProductionOrder(null)}>
+                    Close
+                  </Button>
+                  {viewProductionOrder.in_factory_quantity > 0 && (
+                    <Button
+                      variant="outline"
+                      className="text-green-700 border-green-300 hover:bg-green-50"
+                      onClick={() => {
+                        setViewProductionOrder(null);
+                        void openReceiveFactoryDialog(viewProductionOrder);
+                      }}
+                    >
+                      <PackageCheck className="h-4 w-4 mr-1" /> Receive Products
+                    </Button>
+                  )}
+                  <Button onClick={handleUpdateProductionNotes} disabled={actionLoading}>
+                    {actionLoading && <Loader2 className="h-4 w-4 mr-1 animate-spin" />}
+                    Save Notes
+                  </Button>
+                </DialogFooter>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Cancel Production Order Dialog ────────────────────────────── */}
+      <AlertDialog
+        open={!!cancelProductionTarget}
+        onOpenChange={open => {
+          if (!open) setCancelProductionTarget(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <XCircle className="h-5 w-5 text-destructive" /> Cancel Production Order?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="space-y-1">
+              <span className="block">
+                This will cancel batch{' '}
+                <span className="font-mono font-semibold">{cancelProductionTarget?.batch_number}</span>.
+              </span>
+              <span className="block text-amber-700 font-medium">
+                All remaining components at the factory/lab will be returned to warehouse stock.
+              </span>
+              <span className="block text-xs text-muted-foreground mt-1">
+                This action cannot be undone. Orders that have already received products cannot be cancelled.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="mt-2">
+            <Label>Cancellation reason (optional)</Label>
+            <Textarea
+              className="mt-1"
+              rows={2}
+              placeholder="Why is this order being cancelled?"
+              value={cancelProductionNotes}
+              onChange={e => setCancelProductionNotes(e.target.value)}
+            />
+          </div>
+          <AlertDialogFooter className="mt-2">
+            <AlertDialogCancel disabled={actionLoading}>Keep Order</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleCancelProductionOrder}
+              disabled={actionLoading}
+            >
+              {actionLoading ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <XCircle className="h-4 w-4 mr-1" />}
+              Yes, Cancel Order
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* ── Success Dialog ─────────────────────────────────────────────── */}
       <AlertDialog open={successDialog} onOpenChange={setSuccessDialog}>

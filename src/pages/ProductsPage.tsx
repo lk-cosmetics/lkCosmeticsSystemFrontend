@@ -762,20 +762,28 @@ export default function ProductsPage() {
     if (local) {
       setSelected(local);
       setViewOpen(true);
+      setScanOpen(false);
       setScanFeedback(`Found: ${local.name}`);
       setScanFeedbackType('success');
-      return;
+      return true;
     }
-    const api = await productService.searchByBarcode(code);
-    if (api) {
-      setSelected(api);
-      setViewOpen(true);
-      setScanOpen(false);
-      setScanFeedback(`Found: ${api.name}`);
-      setScanFeedbackType('success');
-    } else {
+    try {
+      const api = await productService.searchByBarcode(code);
+      if (api) {
+        setSelected(api);
+        setViewOpen(true);
+        setScanOpen(false);
+        setScanFeedback(`Found: ${api.name}`);
+        setScanFeedbackType('success');
+        return true;
+      }
       setScanFeedback(`Barcode "${code}" not found`);
       setScanFeedbackType('error');
+      return false;
+    } catch (err) {
+      setScanFeedback(extractErr(err));
+      setScanFeedbackType('error');
+      return false;
     }
   }, [products]);
 

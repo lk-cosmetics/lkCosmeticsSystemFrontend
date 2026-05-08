@@ -71,6 +71,7 @@
     search?: string;
     brand?: number;
     status?: 'publish' | 'draft' | 'pending' | 'private';
+    product_type?: 'resell' | 'packaging';
     ordering?: string;
     enabled?: boolean;
   }) {

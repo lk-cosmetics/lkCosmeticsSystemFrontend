@@ -40,6 +40,7 @@ import { salesChannelService } from '@/services/salesChannel.service';
 import { clientService } from '@/services/client.service';
 import { orderService } from '@/services/order.service';
 import { productService } from '@/services/product.service';
+import { promotionService } from '@/services/promotion.service';
 import type {
   ProductListItem,
   SalesChannel,
@@ -57,7 +58,6 @@ import { POSCameraScanner } from './pos/POSCameraScanner';
 import { POSAddClientDialog } from './pos/POSAddClientDialog';
 import { POSClientPromptDialog } from './pos/POSClientPromptDialog';
 import {
-  getEffectivePrice,
   fmtTND,
   type CartLine,
   type PrintableOrderData,
@@ -89,6 +89,7 @@ export default function POSPage() {
   /* ── Cart ───────────────────────────────────────────────────────────── */
   const [cart, setCart] = useState<CartLine[]>([]);
   const [amountReceived, setAmountReceived] = useState(0);
+  const [discountedPrices, setDiscountedPrices] = useState<Record<number, number>>({});
 
   /* ── Order submission ──────────────────────────────────────────────── */
   const [submitting, setSubmitting] = useState(false);
@@ -140,9 +141,12 @@ export default function POSPage() {
   const selectedChannel = channels.find(c => c.id === Number(channelId));
   const productQueryParams = useMemo(() => {
     if (!channelId || !selectedChannel) return { enabled: false as const };
-    // Products are brand-scoped. Filtering by brand guarantees the list
-    // matches the selected sales channel's brand for all channel types.
-    return { brand: selectedChannel.brand, enabled: true as const };
+    return {
+      brand: selectedChannel.brand,
+      product_type: 'resell' as const,
+      status: 'publish' as const,
+      enabled: true as const,
+    };
   }, [channelId, selectedChannel]);
 
   const {
@@ -161,6 +165,83 @@ export default function POSPage() {
     if (!channelId || !productsData?.pages) return [];
     return productsData.pages.flatMap(page => page?.results ?? []);
   }, [channelId, productsData?.pages]);
+
+  const cartProductIds = useMemo(
+    () => Array.from(new Set(cart.map(l => l.product.id))),
+    [cart],
+  );
+
+  // Fetch discounts for visible products + cart items so product cards show promo prices
+  const allTrackedProductIds = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...channelProducts.map(p => p.id),
+          ...cartProductIds,
+        ]),
+      ),
+    [channelProducts, cartProductIds],
+  );
+
+  const getUnitPrice = useCallback(
+    (product: ProductListItem) => {
+      const override = discountedPrices[product.id];
+      if (typeof override === 'number' && Number.isFinite(override)) {
+        return override;
+      }
+      return Number(product.sales_price);
+    },
+    [discountedPrices],
+  );
+
+  /* ── Promotions (POS-only) ──────────────────────────────────────────── */
+  useEffect(() => {
+    if (!channelId || !selectedChannel || selectedChannel.channel_type !== 'POS') {
+      setDiscountedPrices({});
+      return;
+    }
+    if (allTrackedProductIds.length === 0) {
+      setDiscountedPrices({});
+      return;
+    }
+
+    let cancelled = false;
+
+    const fetchDiscounts = async () => {
+      try {
+        // Single batch call instead of N individual calls → no race conditions,
+        // no silent 404-rejections per product, one network round-trip.
+        const response = await promotionService.batchCalculateDiscounts({
+          product_ids: allTrackedProductIds,
+          sales_channel_id: Number(channelId),
+        });
+
+        if (!cancelled) {
+          const next: Record<number, number> = {};
+          Object.entries(response.results).forEach(([productId, result]) => {
+            const price = Number(result.discounted_price);
+            if (Number.isFinite(price)) {
+              next[Number(productId)] = price;
+            }
+          });
+          // Replace entirely so products that lost their promotion are cleared
+          setDiscountedPrices(next);
+        }
+      } catch (err) {
+        // Channel not POS or network error – clear discounts so no stale data
+        if (!cancelled) {
+          setDiscountedPrices({});
+        }
+        console.warn('[POS] Could not fetch promotions:', err);
+      }
+    };
+
+    fetchDiscounts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [channelId, selectedChannel, allTrackedProductIds]);
 
   /* ── Cart quantity map (for product card badges) ───────────────────── */
   const cartQuantities = useMemo(
@@ -203,9 +284,16 @@ export default function POSPage() {
 
   const clearCart = useCallback(() => setCart([]), []);
 
-  const cartTotal = useMemo(
-    () => cart.reduce((sum, l) => sum + l.quantity * getEffectivePrice(l.product), 0),
+  // Full price total (no promotions) — used to compute savings display
+  const cartOriginalTotal = useMemo(
+    () => cart.reduce((sum, l) => sum + l.quantity * Number(l.product.sales_price), 0),
     [cart],
+  );
+
+  // Discounted total — what the customer actually pays
+  const cartTotal = useMemo(
+    () => cart.reduce((sum, l) => sum + l.quantity * getUnitPrice(l.product), 0),
+    [cart, getUnitPrice],
   );
 
   const cartItemCount = useMemo(
@@ -318,6 +406,42 @@ export default function POSPage() {
     setErrorMsg(null);
 
     const currentChannel = channels.find(c => c.id === Number(channelId));
+    const isPOS = currentChannel?.channel_type === 'POS';
+
+    // Always fetch fresh discounts at submission time — one batch call avoids
+    // stale state and N-request race conditions.
+    const freshDiscounts: Record<number, number> = {};
+    if (isPOS && cart.length > 0) {
+      try {
+        const response = await promotionService.batchCalculateDiscounts({
+          product_ids: cart.map(l => l.product.id),
+          sales_channel_id: Number(channelId),
+        });
+        Object.entries(response.results).forEach(([productId, result]) => {
+          const p = Number(result.discounted_price);
+          if (Number.isFinite(p)) {
+            freshDiscounts[Number(productId)] = p;
+          }
+        });
+        // Sync background state so the cart UI stays consistent
+        setDiscountedPrices(prev => ({ ...prev, ...freshDiscounts }));
+      } catch (err) {
+        // Promotions unavailable — submit at original prices
+        console.warn('[POS] Promotion fetch failed at submission:', err);
+      }
+    }
+
+    const getSubmitPrice = (product: ProductListItem): number => {
+      const fresh = freshDiscounts[product.id];
+      if (typeof fresh === 'number' && Number.isFinite(fresh)) return fresh;
+      // Fall back to background-fetched price, then original price
+      return getUnitPrice(product);
+    };
+
+    const submitTotal = cart.reduce(
+      (sum, l) => sum + l.quantity * getSubmitPrice(l.product),
+      0,
+    );
 
     const payload: POSOrderCreateRequest = {
       sales_channel: Number(channelId),
@@ -327,7 +451,9 @@ export default function POSPage() {
             first_name: selectedClient.first_name,
             last_name: selectedClient.last_name,
             phone: selectedClient.phone ?? undefined,
-            city: selectedClient.city,
+            city: selectedClient.city || currentChannel?.city || '',
+            state: currentChannel?.state || '',
+            address_1: currentChannel?.address || '',
           }
         : undefined,
       line_items: cart.map(l => ({
@@ -335,8 +461,8 @@ export default function POSPage() {
         name: l.product.name,
         sku: l.product.barcode ?? '',
         quantity: l.quantity,
-        price: getEffectivePrice(l.product).toFixed(2),
-        total: (l.quantity * getEffectivePrice(l.product)).toFixed(2),
+        price: getSubmitPrice(l.product).toFixed(2),
+        total: (l.quantity * getSubmitPrice(l.product)).toFixed(2),
       })),
       payment_method: paymentMethod,
       payment_method_title:
@@ -347,7 +473,7 @@ export default function POSPage() {
             : 'Bank Transfer',
       customer_note: customerNote,
       status: 'completed',
-      total: cartTotal.toFixed(2),
+      total: submitTotal.toFixed(2),
     };
 
     try {
@@ -379,8 +505,8 @@ export default function POSPage() {
     }
   }, [
     channelId, cart, selectedClient, channels,
-    paymentMethod, customerNote, cartTotal, amountReceived, changeAmount,
-    isMobile,
+    paymentMethod, customerNote, amountReceived, changeAmount,
+    isMobile, getUnitPrice,
   ]);
 
   const handleSubmit = useCallback(() => {
@@ -430,20 +556,32 @@ export default function POSPage() {
   }, []);
 
   /* ── Shared cart props ─────────────────────────────────────────────── */
+  const canAddClient = !!channelId && !!selectedChannel;
+  
   const cartProps = {
     cart,
     cartTotal,
+    cartOriginalTotal,
     cartItemCount,
     onQtyChange: changeQty,
     onRemove: removeFromCart,
     onClearCart: clearCart,
+    getPrice: getUnitPrice,
     clients,
     selectedClient,
     clientSkipped,
     onSelectClient: handleSelectClient,
     onSkipClient: handleSkipClient,
     onClearClient: handleClearClient,
-    onAddClientClick: () => setAddClientOpen(true),
+    onAddClientClick: () => {
+      // ✨ Validate channel is selected before opening dialog
+      if (!canAddClient) {
+        setErrorMsg('⚠️ Sales Channel Required: Please select a sales channel first before adding a client.');
+        return;
+      }
+      setAddClientOpen(true);
+    },
+    canAddClient,  // ✨ Pass to component so it can disable button
     paymentMethod,
     onPaymentMethodChange: setPaymentMethod,
     customerNote,
@@ -485,6 +623,8 @@ export default function POSPage() {
             isFetchingNextPage={isFetchingNextPage}
             hasNextPage={hasNextPage}
             fetchNextPage={fetchNextPage}
+            getPrice={getUnitPrice}
+            selectedChannel={selectedChannel}
           />
         </div>
 

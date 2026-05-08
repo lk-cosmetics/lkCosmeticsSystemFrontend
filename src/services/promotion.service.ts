@@ -267,6 +267,28 @@ class PromotionService {
     return response.data;
   }
 
+  /**
+   * Batch-calculate discounts for multiple products on a specific POS channel.
+   * Returns a map of product_id (string) → DiscountCalculationResult.
+   * Products with no active promotion on this channel are omitted from the map.
+   *
+   * Use this instead of N individual `calculateDiscount` calls to avoid race
+   * conditions and excessive network round-trips on the POS page.
+   */
+  async batchCalculateDiscounts(request: {
+    product_ids: number[];
+    sales_channel_id: number;
+  }): Promise<{
+    sales_channel_id: number;
+    results: Record<string, DiscountCalculationResult>;
+  }> {
+    const response = await apiClient.post<{
+      sales_channel_id: number;
+      results: Record<string, DiscountCalculationResult>;
+    }>(`${PROMOTION_ENDPOINT}batch_calculate_discounts/`, request);
+    return response.data;
+  }
+
   // ===========================================================================
   // Analytics
   // ===========================================================================
